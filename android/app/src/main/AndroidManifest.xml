@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- android/app/src/debug/AndroidManifest.xml'deki INTERNET izni sadece
+         debug derlemesine dahil olur (Flutter'in hot-reload icin ekledigi
+         gelistirme izni). Coklu oyunculu mod aga her build turunde (ozellikle
+         release/APK) ihtiyac duydugu icin izni burada, ana manifestte de
+         tanimlamak gerekir. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="kart_oyunu"
         android:name="${applicationName}"

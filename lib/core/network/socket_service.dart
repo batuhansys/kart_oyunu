@@ -22,8 +22,7 @@ class SocketService {
   /// her acildiginda varsayilan olarak bu adrese baglanir (kullanici
   /// yine de lobi ekranindan farkli bir adrese gecebilir). Bos
   /// birakilirsa [defaultLocalUrl] kullanilir.
-  static const String? productionUrl = null;
-  // Ornek: static const String? productionUrl = 'https://risk-multiplayer-server.onrender.com';
+  static const String productionUrl = 'https://kart-oyunu-server.onrender.com';
 
   /// Android emulatorunde "localhost" bilgisayarin kendisi degil,
   /// emulatorun kendi sanal makinesidir; bilgisayara ulasmak icin
