@@ -6,6 +6,7 @@ const { getAuth, getFirestore } = require('./firebaseAdmin');
 const { payReward } = require('./game/wallet');
 const { claimLevelRewards } = require('./game/leveling');
 const { SHOP_PACKAGES } = require('./game/shopPackages');
+const { spinWheel } = require('./game/dailyWheel');
 
 const app = express();
 const server = http.createServer(app);
@@ -111,6 +112,25 @@ app.post('/api/level/claim', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[level] claim failed:', err);
     res.status(500).json({ error: 'Ödül toplama başarısız.' });
+  }
+});
+
+// Gunluk cark: type 'free' (gunde 1) veya 'ad' (gunde 1, sadece free
+// kullanildiysa - client bu istegi ancak sahte reklam bekleme ekranini
+// gosterdikten SONRA atar, bkz. lib/features/daily_wheel). Sonuc
+// (hangi dilim + kazanilan RC) tamamen burada, sunucuda belirlenir.
+app.post('/api/wheel/spin', requireAuth, async (req, res) => {
+  const type = req.body?.type === 'ad' ? 'ad' : 'free';
+  try {
+    const result = await spinWheel(req.uid, type);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[wheel] spin failed:', err);
+    res.status(500).json({ error: 'Çark çevrilemedi.' });
   }
 });
 
