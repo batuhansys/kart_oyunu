@@ -4,16 +4,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/city_list_view.dart';
 import '../../core/widgets/gradient_background.dart';
 import '../../core/widgets/pressable_scale.dart';
+import '../../domain/entities/game_city.dart';
 import '../../state/auth_provider.dart';
 import '../../state/multiplayer/multiplayer_notifier.dart';
 import '../../state/multiplayer/multiplayer_state.dart';
 import '../../state/multiplayer/server_url_provider.dart';
+import '../../state/wallet_provider.dart';
 
-/// Coklu oyunculu giris ekrani: sunucuya baglanir, "Hizli Eslesme",
-/// "Oda Kur" (arkadasa kod gonder) ve "Odaya Katil" (kod ile) akislarini
-/// sunar. Esleşme bulununca MultiplayerGameScreen'e gecilir.
+/// Coklu oyunculu giris ekrani: sunucuya baglanir, ana alanda bir sehir
+/// secip o sehre girmeye calisan rakiplerle otomatik eslesmeyi (bkz.
+/// server/game/roomManager.js joinCityQueue), sag tarafta ise
+/// "Arkadaşınla Oyna" panelinden oda kurma/katilma akislarini sunar. Her
+/// iki yol da secilen sehrin giris ucretini sunucu tarafinda (bkz.
+/// server/game/wallet.js) tahsil eder. Esleşme bulununca
+/// MultiplayerGameScreen'e gecilir.
 class MultiplayerLobbyScreen extends ConsumerStatefulWidget {
   const MultiplayerLobbyScreen({super.key});
 
@@ -25,7 +32,6 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
   late final TextEditingController _nameController;
   final TextEditingController _joinCodeController = TextEditingController();
   final TextEditingController _serverUrlController = TextEditingController();
-  bool _showServerSettings = false;
 
   @override
   void initState() {
@@ -60,6 +66,40 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
     ref.read(multiplayerProvider.notifier).connect(url);
   }
 
+  /// "Oda Kur"a basildiginda once hangi sehirde (hangi giris ucretiyle)
+  /// kurulacagini sorar; sehir secilmeden oda acilmaz.
+  Future<void> _createRoomWithCityPicker() async {
+    final riskCoin = ref.read(walletProvider).riskCoin;
+    final city = await showModalBottomSheet<GameCity>(
+      context: context,
+      backgroundColor: AppColors.surfaceDark,
+      builder: (ctx) => SizedBox(
+        height: 320,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Hangi şehirde oda kurmak istersin?',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: CityListView(
+                riskCoin: riskCoin,
+                onSelect: (city) => Navigator.of(ctx).pop(city),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (city == null || !mounted) return;
+    ref.read(multiplayerProvider.notifier).createRoom(_playerName, cityId: city.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(multiplayerProvider);
@@ -88,17 +128,21 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
       ),
       body: GradientBackground(
         child: SafeArea(
-          child: SingleChildScrollView(
+          child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _buildStatusBanner(state),
-                const SizedBox(height: 20),
-                if (state.stage == MpStage.menu) _buildMenu(),
-                if (state.stage == MpStage.searchingQuickMatch) _buildSearching(),
-                if (state.stage == MpStage.roomWaitingForOpponent) _buildRoomWaiting(state),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: switch (state.stage) {
+                    MpStage.menu => _buildMenu(),
+                    MpStage.searchingCity => _buildSearching(state),
+                    MpStage.roomWaitingForOpponent => _buildRoomWaiting(state),
+                    _ => const SizedBox.shrink(),
+                  },
+                ),
                 _buildServerSettings(state),
               ],
             ),
@@ -140,74 +184,109 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
 
   Widget _buildMenu() {
     final connected = ref.watch(multiplayerProvider).stage == MpStage.menu;
-    return Column(
+    final riskCoin = ref.watch(walletProvider).riskCoin;
+
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
-          controller: _nameController,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(labelText: 'Görünen adın', filled: true),
-        ),
-        const SizedBox(height: 20),
-        _actionButton(
-          label: 'Hızlı Eşleşme',
-          icon: Icons.flash_on,
-          color: AppColors.riskBlue,
-          onTap: connected ? () => ref.read(multiplayerProvider.notifier).quickMatch(_playerName) : null,
-        ),
-        const SizedBox(height: 12),
-        _actionButton(
-          label: 'Oda Kur (Arkadaşla Oyna)',
-          icon: Icons.add_box,
-          color: AppColors.doubleRiskNavy,
-          onTap: connected ? () => ref.read(multiplayerProvider.notifier).createRoom(_playerName) : null,
-        ),
-        const SizedBox(height: 20),
-        Text('veya bir oda koduna katıl', style: TextStyle(color: Colors.white.withOpacity(0.7))),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _joinCodeController,
-                textCapitalization: TextCapitalization.characters,
-                style: const TextStyle(color: Colors.white, letterSpacing: 2),
-                decoration: const InputDecoration(labelText: 'Oda Kodu', filled: true),
+        Expanded(
+          flex: 3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _nameController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(labelText: 'Görünen adın', filled: true),
               ),
-            ),
-            const SizedBox(width: 12),
-            PressableScale(
-              onTap: connected
-                  ? () {
-                      final code = _joinCodeController.text.trim();
-                      if (code.isEmpty) return;
-                      ref.read(multiplayerProvider.notifier).joinRoom(code, _playerName);
-                    }
-                  : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                decoration: BoxDecoration(
-                  color: connected ? AppColors.gold : AppColors.gold.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 10),
+              const Text(
+                'Bir şehir seç: o şehre girmeye çalışan başka bir oyuncuyla otomatik eşleşirsin.',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+              Expanded(
+                child: CityListView(
+                  scrollDirection: Axis.vertical,
+                  riskCoin: riskCoin,
+                  onSelect: (city) {
+                    if (!connected) return;
+                    ref.read(multiplayerProvider.notifier).joinCityQueue(city.id, _playerName);
+                  },
                 ),
-                child: const Text('Katıl', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
-            ),
-          ],
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 32, color: Colors.white24),
+        Expanded(
+          flex: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Arkadaşınla Oyna',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              _actionButton(
+                label: 'Oda Kur',
+                icon: Icons.add_box,
+                color: AppColors.doubleRiskNavy,
+                onTap: connected ? _createRoomWithCityPicker : null,
+              ),
+              const SizedBox(height: 20),
+              Text('veya bir oda koduna katıl', style: TextStyle(color: Colors.white.withOpacity(0.7))),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _joinCodeController,
+                      textCapitalization: TextCapitalization.characters,
+                      style: const TextStyle(color: Colors.white, letterSpacing: 2),
+                      decoration: const InputDecoration(labelText: 'Oda Kodu', filled: true),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  PressableScale(
+                    onTap: connected
+                        ? () {
+                            final code = _joinCodeController.text.trim();
+                            if (code.isEmpty) return;
+                            ref.read(multiplayerProvider.notifier).joinRoom(code, _playerName);
+                          }
+                        : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: connected ? AppColors.gold : AppColors.gold.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('Katıl', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildSearching() {
+  Widget _buildSearching(MultiplayerState state) {
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const CircularProgressIndicator(color: AppColors.gold),
         const SizedBox(height: 16),
-        const Text('Rakip aranıyor...', style: TextStyle(color: Colors.white, fontSize: 16)),
+        Text(
+          state.city != null ? '${state.city!.name} için rakip aranıyor...' : 'Rakip aranıyor...',
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
         const SizedBox(height: 20),
         TextButton(
-          onPressed: () => ref.read(multiplayerProvider.notifier).cancelQuickMatch(),
+          onPressed: () => ref.read(multiplayerProvider.notifier).cancelCityQueue(),
           child: const Text('İptal'),
         ),
       ],
@@ -217,7 +296,15 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
   Widget _buildRoomWaiting(MultiplayerState state) {
     final code = state.roomCode ?? '-----';
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        if (state.city != null) ...[
+          Text(
+            '${state.city!.name} • Giriş: ${state.city!.entryFee} RC • Kazanç: ${state.city!.rewardAmount} RC',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+        ],
         const Text('Bu kodu arkadaşınla paylaş:', style: TextStyle(color: Colors.white70)),
         const SizedBox(height: 12),
         Container(
@@ -259,36 +346,68 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
     );
   }
 
-  Widget _buildServerSettings(MultiplayerState state) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextButton(
-          onPressed: () => setState(() => _showServerSettings = !_showServerSettings),
-          child: Text(_showServerSettings ? 'Sunucu Ayarlarını Gizle' : 'Gelişmiş: Sunucu Adresi'),
+  /// Sunucu adresi ayari, dar/yatay ekranlarda ana icerigi (sehir listesi)
+  /// sikistirmamasi icin ayri bir bottom sheet'te gosterilir (bkz. eskiden
+  /// buradaki satir-ici genisleyen panel, dar ekranlarda tasabiliyordu).
+  Future<void> _showServerSettingsSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surfaceDark,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
         ),
-        if (_showServerSettings) ...[
-          const Text(
-            'Emülatörde varsayılan adres genelde doğrudur. Gerçek bir '
-            'telefondan aynı Wi-Fi üzerinden test ederken bilgisayarınızın '
-            'yerel ağ IP adresini (örn. http://192.168.1.34:3000), '
-            'sunucuyu bir yere deploy ettikten sonra ise oradan aldığınız '
-            'https:// adresini girin.',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _serverUrlController,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(labelText: 'Sunucu Adresi', filled: true),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton(onPressed: _reconnectWithNewUrl, child: const Text('Bağlan')),
-          ),
-        ],
-      ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Gelişmiş: Sunucu Adresi',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Emülatörde varsayılan adres genelde doğrudur. Gerçek bir '
+              'telefondan aynı Wi-Fi üzerinden test ederken bilgisayarınızın '
+              'yerel ağ IP adresini (örn. http://192.168.1.34:3000), '
+              'sunucuyu bir yere deploy ettikten sonra ise oradan aldığınız '
+              'https:// adresini girin.',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _serverUrlController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: 'Sunucu Adresi', filled: true),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton(
+                onPressed: () {
+                  _reconnectWithNewUrl();
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('Bağlan'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServerSettings(MultiplayerState state) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: _showServerSettingsSheet,
+        child: const Text('Gelişmiş: Sunucu Adresi'),
+      ),
     );
   }
 

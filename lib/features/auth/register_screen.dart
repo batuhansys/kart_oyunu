@@ -15,10 +15,12 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
 
   @override
   void dispose() {
     _usernameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -26,6 +28,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     await ref.read(authProvider.notifier).register(
       username: _usernameController.text,
       method: method,
+      password: _passwordController.text,
     );
     if (!mounted) return;
 
@@ -59,6 +62,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     labelText: 'Kullanıcı Adı (benzersiz olmalı, değiştirilemez)',
                   ),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Şifre (en az 6 karakter)'),
+                ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
@@ -71,8 +81,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: PressableScale(
-                    onTap: isLoading ? null : () => _register(RegisterMethod.facebook),
-                    child: _RegisterButton(icon: Icons.facebook, label: 'Facebook ile Kayıt Ol', loading: isLoading),
+                    onTap: null,
+                    child: _RegisterButton(
+                      icon: Icons.facebook,
+                      label: 'Facebook ile Kayıt Ol (Yakında)',
+                      loading: false,
+                      disabled: true,
+                    ),
                   ),
                 ),
               ],
@@ -88,15 +103,21 @@ class _RegisterButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool loading;
+  final bool disabled;
 
-  const _RegisterButton({required this.icon, required this.label, required this.loading});
+  const _RegisterButton({
+    required this.icon,
+    required this.label,
+    required this.loading,
+    this.disabled = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFD4AF37),
+        color: disabled ? const Color(0xFFD4AF37).withOpacity(0.35) : const Color(0xFFD4AF37),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(

@@ -17,6 +17,7 @@ abstract class AuthRepository {
   Future<Result<UserProfile>> register({
     required String username,
     required RegisterMethod method,
+    String? password,
   });
 
   Future<void> logout();

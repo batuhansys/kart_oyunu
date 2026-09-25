@@ -1,11 +1,33 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+import '../../core/constants/cities.dart';
 import '../../core/network/socket_service.dart';
+import '../../domain/entities/game_city.dart';
 import '../../domain/entities/mp_history_entry.dart';
 import '../../domain/entities/player_choice.dart';
 import '../../domain/entities/playing_card.dart';
 import 'multiplayer_state.dart';
+
+/// Sunucudan gelen `city` haritasini (varsa) GameCity'e cevirir. Server
+/// bunu bazen null gonderir (sehirsiz/eski private room akisi).
+GameCity? _cityFromJson(dynamic raw) {
+  if (raw == null) return null;
+  return GameCity.fromJson(Map<String, dynamic>.from(raw as Map));
+}
+
+/// Client'ta gosterim icin: sadece bir cityId geldiginde (orn.
+/// 'searching' olayi) kendi bildigimiz listeden şehri bulur. Sunucu
+/// giris ucretini her zaman KENDI listesinden dogrular; burasi salt
+/// gorsel amaclidir.
+GameCity? _cityById(String? cityId) {
+  if (cityId == null) return null;
+  for (final city in kCities) {
+    if (city.id == cityId) return city;
+  }
+  return null;
+}
 
 /// `as bool` / `as bool?`, Flutter web'de socket.io-client'in JS-interop
 /// koprusunden gelen ham JS boolean degerlerinde DDC'nin sikca calisan
@@ -43,8 +65,18 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   }
 
   /// Sunucuya baglanir. Zaten ayni sunucuya bagliysa yeniden baglanmaz.
-  void connect(String url) {
-    final socket = SocketService().connect(url);
+  /// Once (varsa) giris yapmis kullanicinin guncel Firebase ID token'ini
+  /// alir — sunucu bunu dogrulayip socket.data.uid'i set eder, sehirli
+  /// (giris ucretli) maclar bu olmadan oynanamaz (bkz. server/server.js).
+  Future<void> connect(String url) async {
+    String? token;
+    try {
+      token = await fb_auth.FirebaseAuth.instance.currentUser?.getIdToken();
+    } catch (_) {
+      token = null; // misafir olarak devam; sehirli maclar reddedilir.
+    }
+
+    final socket = SocketService().connect(url, token: token);
     if (identical(socket, _socket)) {
       if (state.stage == MpStage.disconnected) {
         _setState(() => state.copyWith(
@@ -78,8 +110,13 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
           ));
     });
 
-    socket.on('searching', (_) {
-      _setState(() => state.copyWith(stage: MpStage.searchingQuickMatch, clearError: true));
+    socket.on('searching', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      _setState(() => state.copyWith(
+            stage: MpStage.searchingCity,
+            city: _cityById(map['cityId'] as String?),
+            clearError: true,
+          ));
     });
 
     socket.on('room_created', (data) {
@@ -87,6 +124,7 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
       _setState(() => state.copyWith(
             stage: MpStage.roomWaitingForOpponent,
             roomCode: map['code'] as String,
+            city: _cityFromJson(map['city']),
             clearError: true,
           ));
     });
@@ -106,6 +144,7 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
             stage: MpStage.playing,
             myIndex: map['myIndex'] as int,
             opponentName: (map['opponentName'] as String?) ?? 'Rakip',
+            city: _cityFromJson(map['city']),
           ));
     });
 
@@ -200,19 +239,22 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
       state.yourChoice == null &&
       state.isYourTurn;
 
-  void quickMatch(String name) {
+  /// Bir sehir secilince cagrilir: sunucu o sehri secen baska (bagli)
+  /// birini bulursa hemen eslestirir, yoksa kuyruga ekler (bkz.
+  /// server/game/roomManager.js joinCityQueue).
+  void joinCityQueue(String cityId, String name) {
     if (state.stage != MpStage.menu) return;
-    _socket?.emit('quick_match', {'name': name});
+    _socket?.emit('join_city_queue', {'cityId': cityId, 'name': name});
   }
 
-  void cancelQuickMatch() {
-    _socket?.emit('cancel_quick_match');
-    _setState(() => state.copyWith(stage: MpStage.menu, clearError: true));
+  void cancelCityQueue() {
+    _socket?.emit('cancel_city_queue');
+    _setState(() => state.copyWith(stage: MpStage.menu, clearError: true, clearCity: true));
   }
 
-  void createRoom(String name) {
+  void createRoom(String name, {required String cityId}) {
     if (state.stage != MpStage.menu) return;
-    _socket?.emit('create_room', {'name': name});
+    _socket?.emit('create_room', {'name': name, 'cityId': cityId});
   }
 
   void joinRoom(String code, String name) {
@@ -230,14 +272,26 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   /// Masadan kalkma: aktif bir es varsa rakip otomatik kazanir (bkz.
   /// server Room.handlePlayerGone), oda kurulmus ama rakip gelmemisse
   /// oda iptal edilir.
+  ///
+  /// Sadece `stage`'i degistiriyoruz (kart/skor gibi alanlari SIFIRLAMIYORUZ):
+  /// GoRouter'in pop gecis animasyonu (~320ms) boyunca bu ekran hala
+  /// mounted durumda ve provider'i dinlemeye devam ediyor. Eger burada
+  /// state'i tamamen bos bir MultiplayerState() ile degistirseydik, o
+  /// gecis sirasinda oyun masasi bir anlik "Sen: 0, Rakip: 0" ve bos
+  /// kartlarla yeniden cizilip yeni bir el basliyormus gibi gorunuyordu
+  /// (bkz. kullanici raporu: "Lobiye dön dediğimde tekrar oyuna dahil
+  /// ediyor"). Bir sonraki gercek eslesme (match_found/room_created)
+  /// zaten tamamen taze bir MultiplayerState olusturuyor, o yuzden
+  /// burada eski alanlarin bir sure ekranda asili kalmasinin bir
+  /// zarari yok.
   void leaveTable() {
     _socket?.emit('leave_room');
-    _setState(() => const MultiplayerState(stage: MpStage.menu));
+    _setState(() => state.copyWith(stage: MpStage.menu));
   }
 
   void backToMenuAfterFinish() {
     _socket?.emit('leave_room');
-    _setState(() => const MultiplayerState(stage: MpStage.menu));
+    _setState(() => state.copyWith(stage: MpStage.menu));
   }
 
   /// Oyun sonu ekraninda "Tekrar Meydan Oku"ya basildiginda cagrilir.

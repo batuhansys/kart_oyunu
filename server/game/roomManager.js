@@ -1,4 +1,5 @@
 const Room = require('./room');
+const { getCity } = require('./cities');
 
 // Kod okurken karistirilabilecek karakterler (0/O, 1/I/L) haric tutuldu.
 const CODE_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -6,16 +7,17 @@ const CODE_LENGTH = 5;
 
 /**
  * Tum aktif odalari, oda-kodu -> oda esleşmesini, oyuncu socket'i -> oda
- * esleşmesini ve "hizli eslesme" bekleme kuyrugunu yonetir. server.js
- * buradaki metodlari socket olaylarina bagli olarak cagirir; bu sinif
- * socket.io olay isimlerinden habersizdir (sadece io.to(...).emit kullanir).
+ * esleşmesini ve sehir bazli "online eslesme" bekleme kuyruklarini
+ * yonetir. server.js buradaki metodlari socket olaylarina bagli olarak
+ * cagirir; bu sinif socket.io olay isimlerinden habersizdir (sadece
+ * io.to(...).emit kullanir).
  */
 class RoomManager {
   constructor(io) {
     this.io = io;
     this.rooms = new Map(); // code -> Room
     this.playerRoom = new Map(); // socketId -> code
-    this.quickQueue = []; // [{ socketId, name }]
+    this.cityQueues = new Map(); // cityId -> [{ socketId, name, uid }]
   }
 
   _generateCode() {
@@ -37,20 +39,37 @@ class RoomManager {
     return false;
   }
 
-  createPrivateRoom(socket, name) {
+  _startRoom(room, code) {
+    room.start().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[room ${code}] start() failed:`, err);
+    });
+  }
+
+  createPrivateRoom(socket, name, cityId) {
     if (this._isAlreadyPlaying(socket)) return;
+
+    let city = null;
+    if (cityId) {
+      city = getCity(cityId);
+      if (!city) {
+        socket.emit('room_error', { message: 'Geçersiz şehir.' });
+        return;
+      }
+    }
 
     const code = this._generateCode();
     const room = new Room({
       id: code,
       mode: 'private',
       io: this.io,
+      city,
       onFinished: (id) => this._onRoomFinished(id),
     });
-    room.addPlayer(socket.id, name);
+    room.addPlayer(socket.id, name, socket.data.uid);
     this.rooms.set(code, room);
     this.playerRoom.set(socket.id, code);
-    socket.emit('room_created', { code });
+    socket.emit('room_created', { code, city });
   }
 
   joinPrivateRoom(socket, rawCode, name) {
@@ -67,17 +86,27 @@ class RoomManager {
       return;
     }
 
-    room.addPlayer(socket.id, name);
+    room.addPlayer(socket.id, name, socket.data.uid);
     this.playerRoom.set(socket.id, code);
-    room.start();
+    this._startRoom(room, code);
   }
 
-  quickMatch(socket, name) {
+  /// Kullanici bir sehir secince cagrilir: o sehre girmeye calisan baska
+  /// (hala bagli) biri kuyrukta varsa hemen eslestirir, yoksa kuyruga
+  /// ekler. Sadece AYNI sehri secenler birbiriyle eslesir.
+  joinCityQueue(socket, cityId, name) {
     if (this._isAlreadyPlaying(socket)) return;
 
-    // Kuyrukta bekleyen (ve hala bagli olan) birini bul.
-    while (this.quickQueue.length > 0) {
-      const waiting = this.quickQueue.shift();
+    const city = getCity(cityId);
+    if (!city) {
+      socket.emit('room_error', { message: 'Geçersiz şehir.' });
+      return;
+    }
+
+    const queue = this.cityQueues.get(cityId) || [];
+
+    while (queue.length > 0) {
+      const waiting = queue.shift();
       if (waiting.socketId === socket.id) continue; // ayni oyuncu iki kez tiklamis olabilir
       const waitingSocket = this.io.sockets.sockets.get(waiting.socketId);
       if (!waitingSocket) continue; // kopmus, atla
@@ -85,25 +114,31 @@ class RoomManager {
       const code = this._generateCode();
       const room = new Room({
         id: code,
-        mode: 'quick',
+        mode: 'city',
         io: this.io,
+        city,
         onFinished: (id) => this._onRoomFinished(id),
       });
-      room.addPlayer(waiting.socketId, waiting.name);
-      room.addPlayer(socket.id, name);
+      room.addPlayer(waiting.socketId, waiting.name, waiting.uid);
+      room.addPlayer(socket.id, name, socket.data.uid);
       this.rooms.set(code, room);
       this.playerRoom.set(waiting.socketId, code);
       this.playerRoom.set(socket.id, code);
-      room.start();
+      this.cityQueues.set(cityId, queue);
+      this._startRoom(room, code);
       return;
     }
 
-    this.quickQueue.push({ socketId: socket.id, name });
-    socket.emit('searching', {});
+    queue.push({ socketId: socket.id, name, uid: socket.data.uid });
+    this.cityQueues.set(cityId, queue);
+    socket.emit('searching', { cityId });
   }
 
-  cancelQuickMatch(socket) {
-    this.quickQueue = this.quickQueue.filter((q) => q.socketId !== socket.id);
+  cancelCityQueue(socket) {
+    for (const [cityId, queue] of this.cityQueues) {
+      const filtered = queue.filter((q) => q.socketId !== socket.id);
+      if (filtered.length !== queue.length) this.cityQueues.set(cityId, filtered);
+    }
   }
 
   submitChoice(socket, choice) {
@@ -137,7 +172,7 @@ class RoomManager {
   }
 
   handleDisconnect(socket) {
-    this.cancelQuickMatch(socket);
+    this.cancelCityQueue(socket);
     const code = this.playerRoom.get(socket.id);
     if (!code) return;
     const room = this.rooms.get(code);

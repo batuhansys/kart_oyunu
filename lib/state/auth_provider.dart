@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/utils/logger.dart';
-import '../data/repositories/local_auth_repository.dart';
+import '../data/repositories/firebase_auth_repository.dart';
 import '../domain/entities/user_profile.dart';
 import '../domain/repositories/auth_repository.dart';
 
@@ -36,10 +36,10 @@ class AuthState {
   }
 }
 
-/// Bu provider'ı override ederek (örn. testlerde veya gerçek backend'e
-/// geçişte) [LocalAuthRepository] yerine başka bir implementasyon
-/// bağlayabilirsiniz; AuthNotifier'ın hiçbir satırı değişmez.
-final authRepositoryProvider = Provider<AuthRepository>((ref) => LocalAuthRepository());
+/// Bu provider'ı override ederek (örn. testlerde [LocalAuthRepository]
+/// bağlayarak) farklı bir implementasyon kullanabilirsiniz; AuthNotifier'ın
+/// hiçbir satırı değişmez.
+final authRepositoryProvider = Provider<AuthRepository>((ref) => FirebaseAuthRepository());
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repository;
@@ -60,9 +60,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  Future<void> register({required String username, required RegisterMethod method}) async {
+  Future<void> register({
+    required String username,
+    required RegisterMethod method,
+    String? password,
+  }) async {
     state = state.copyWith(isLoading: true, clearError: true);
-    final result = await _repository.register(username: username, method: method);
+    final result = await _repository.register(username: username, method: method, password: password);
     result.when(
       success: (profile) {
         state = AuthState(status: AuthStatus.authenticated, profile: profile);

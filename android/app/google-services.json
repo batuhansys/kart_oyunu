@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "924317884101",
+    "firebase_url": "https://kart-oyunu-78f24-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "kart-oyunu-78f24",
+    "storage_bucket": "kart-oyunu-78f24.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:924317884101:android:75117382b3d6d89cc39aac",
+        "android_client_info": {
+          "package_name": "com.example.kart_oyunu"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "924317884101-184t38de8d3k872vj6138m8tui9bflc8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjLyVs-zuNxxwLm9-PbmIEP9YuLYEUbNA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "924317884101-184t38de8d3k872vj6138m8tui9bflc8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

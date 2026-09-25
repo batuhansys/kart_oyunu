@@ -42,7 +42,13 @@ class SocketService {
 
   /// Verilen adrese baglanir. Zaten ayni adrese bagliysa yeni bir soket
   /// acmaz, mevcut olani (kopmussa) yeniden baglar.
-  io.Socket connect(String url) {
+  ///
+  /// [token], varsa, Firebase ID token'i olarak handshake'e eklenir
+  /// (bkz. server/server.js'deki io.use middleware'i); sunucu bunu
+  /// dogrulayip socket.data.uid'i set eder. Sehir bazli (giris ucretli)
+  /// maclar bu uid olmadan oynanamaz. Token yoksa/gecersizse baglanti
+  /// yine kurulur, sadece misafir (uid=null) olarak.
+  io.Socket connect(String url, {String? token}) {
     if (_socket != null && _connectedUrl == url) {
       if (!_socket!.connected) _socket!.connect();
       return _socket!;
@@ -55,6 +61,7 @@ class SocketService {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
+          .setAuth({'token': token})
           .build(),
     );
     _socket!.connect();

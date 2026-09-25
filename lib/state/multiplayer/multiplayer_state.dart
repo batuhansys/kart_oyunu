@@ -1,3 +1,4 @@
+import '../../domain/entities/game_city.dart';
 import '../../domain/entities/mp_history_entry.dart';
 import '../../domain/entities/player_choice.dart';
 import '../../domain/entities/playing_card.dart';
@@ -13,8 +14,8 @@ enum MpStage {
   /// Baglandi, ana lobi menusu gosteriliyor (Hizli Eslesme / Oda Kur / Katil).
   menu,
 
-  /// Hizli eslesme kuyrugunda rakip bekleniyor.
-  searchingQuickMatch,
+  /// Secilen sehrin online kuyrugunda rakip bekleniyor.
+  searchingCity,
 
   /// Oda kuruldu, kod paylasildi, rakibin katilmasi bekleniyor.
   roomWaitingForOpponent,
@@ -45,6 +46,11 @@ class MultiplayerState {
   // Lobi
   final String? roomCode;
 
+  /// Secilen/eslesilen sehir (giris ucreti/odul bilgisi icin). Sunucu
+  /// bunu her zaman kendi listesinden dogrular (bkz.
+  /// server/game/cities.js) — burasi sadece gorsellestirme amaclidir.
+  final GameCity? city;
+
   // Esleşme / oyun
   final int? myIndex;
   final String? opponentName;
@@ -74,6 +80,7 @@ class MultiplayerState {
     this.stage = MpStage.disconnected,
     this.errorMessage,
     this.roomCode,
+    this.city,
     this.myIndex,
     this.opponentName,
     this.roundId = 0,
@@ -99,6 +106,8 @@ class MultiplayerState {
     bool clearError = false,
     String? roomCode,
     bool clearRoomCode = false,
+    GameCity? city,
+    bool clearCity = false,
     int? myIndex,
     String? opponentName,
     int? roundId,
@@ -123,6 +132,7 @@ class MultiplayerState {
       stage: stage ?? this.stage,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       roomCode: clearRoomCode ? null : (roomCode ?? this.roomCode),
+      city: clearCity ? null : (city ?? this.city),
       myIndex: myIndex ?? this.myIndex,
       opponentName: opponentName ?? this.opponentName,
       roundId: roundId ?? this.roundId,

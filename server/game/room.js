@@ -1,5 +1,6 @@
 const { randomCard } = require('./cards');
 const { calculateRound } = require('./scoring');
+const { chargeEntryFee, payReward, refundEntryFee } = require('./wallet');
 const {
   WIN_SCORE_THRESHOLD,
   LOSE_SCORE_THRESHOLD,
@@ -20,15 +21,23 @@ const REMATCH_GRACE_SECONDS = 90;
  * her elde bir oyuncu "oncelikli"dir ve once o karar verir; karari
  * (karti degil, sadece riske-gir/pas rengi) hemen rakibe acilir, rakip
  * bu bilgiyi gorerek kendi karari verir. Oncelik her elde rakibe gecer.
+ *
+ * Sehir/giris ucreti: `city` verilmisse (sehir bazli eslesme veya
+ * arkadasla oyna), start() cagrildiginda iki oyuncunun da bakiyesi
+ * (Firestore, firebase-admin ile yetkili sekilde) kontrol edilip
+ * dusulur; oyun sonunda kazanana havuzun tamami (entryFee * 2) odenir,
+ * beraberlikte veya bir oyuncu ayrilirsa giris ucreti sahibine iade
+ * edilir/rakibe odul olarak verilir (bkz. _settleWallets).
  */
 class Room {
-  constructor({ id, mode, io, onFinished }) {
+  constructor({ id, mode, io, city = null, onFinished }) {
     this.id = id;
-    this.mode = mode; // 'private' | 'quick'
+    this.mode = mode; // 'private' | 'city' | 'quick'
     this.io = io;
+    this.city = city; // { id, name, entryFee } | null
     this.onFinished = onFinished; // (roomId) => void, manager temizligi icin
 
-    this.players = []; // [{ socketId, name, score, consecutivePasses, connected }]
+    this.players = []; // [{ socketId, uid, name, score, consecutivePasses, connected }]
     this.status = 'waiting'; // 'waiting' | 'active' | 'over'
     this.roundId = 0;
     this.cards = [null, null];
@@ -39,6 +48,7 @@ class Room {
     this.turnPhase = null; // 'priority' | 'reactive'
 
     this.rematchRequestedBy = null; // 0|1|null
+    this._walletSettled = false; // giris ucreti odendi mi (cift odul/iade onlemi)
 
     this._timeoutHandle = null;
     this._nextRoundHandle = null;
@@ -50,10 +60,15 @@ class Room {
     return this.players.length >= 2;
   }
 
-  addPlayer(socketId, name) {
+  get entryFee() {
+    return this.city ? this.city.entryFee : 0;
+  }
+
+  addPlayer(socketId, name, uid = null) {
     const index = this.players.length;
     this.players.push({
       socketId,
+      uid,
       name: (name || 'Oyuncu').toString().slice(0, 20),
       score: 0,
       consecutivePasses: 0,
@@ -72,9 +87,49 @@ class Room {
     this.io.to(player.socketId).emit(event, payload);
   }
 
-  /// Iki oyuncu da odaya katilinca cagrilir; esleşme bilgisini gonderip
-  /// ilk eli dagitir.
-  start() {
+  /// Iki oyuncu da odaya katilinca cagrilir. Sehirli bir maçsa once giris
+  /// ucretini dusmeye calisir; biri karsilayamiyorsa maç hic baslamadan
+  /// iptal edilir. Basariliysa esleşme bilgisini gonderip ilk eli dagitir.
+  async start() {
+    if (this.city) {
+      const [a, b] = this.players;
+      if (!a.uid || !b.uid) {
+        // Kimligi dogrulanmamis bir oyuncu (bkz. server.js auth middleware)
+        // sehirli bir maca giremez.
+        this._emitTo(0, 'room_error', { message: 'Kimlik doğrulanamadı.' });
+        this._emitTo(1, 'room_error', { message: 'Kimlik doğrulanamadı.' });
+        this.status = 'over';
+        this._finish();
+        return;
+      }
+
+      let result;
+      try {
+        result = await chargeEntryFee(a.uid, b.uid, this.entryFee);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(`[wallet] chargeEntryFee failed for room ${this.id}:`, err);
+        this._emitTo(0, 'room_error', { message: 'Bir hata oluştu, maç başlatılamadı.' });
+        this._emitTo(1, 'room_error', { message: 'Bir hata oluştu, maç başlatılamadı.' });
+        this.status = 'over';
+        this._finish();
+        return;
+      }
+      if (!result.ok) {
+        for (let i = 0; i < 2; i++) {
+          const isInsufficient = result.insufficientUids.includes(this.players[i].uid);
+          this._emitTo(i, 'room_error', {
+            message: isInsufficient
+              ? 'Bu şehre girmek için yeterli RC\'niz yok.'
+              : 'Rakibinizin yeterli RC\'si olmadığı için maç iptal edildi.',
+          });
+        }
+        this.status = 'over';
+        this._finish();
+        return;
+      }
+    }
+
     this.status = 'active';
     // Ilk elde kim once sececek rastgele belirlenir; sonraki her elde
     // rakibe gecer (bkz. _dealNewRound).
@@ -85,6 +140,7 @@ class Room {
         roomId: this.id,
         myIndex: i,
         opponentName: opponent.name,
+        city: this.city,
       });
     }
     this._dealNewRound();
@@ -260,6 +316,11 @@ class Room {
       // dusmuyor.
       this._gameOverHandle = setTimeout(() => {
         this.status = 'over';
+        // Odul/iade odemesini beklemeden hemen bildiriyoruz: oyuncu
+        // sonuc ekranini bir Firestore yazma turu kadar gecikmeden
+        // gormeli. _settleWallets kendi hatalarini zaten loglar (bkz.
+        // yukarisi), bu yuzden bilerek await'lenmiyor.
+        this._settleWallets(winnerIndex);
         for (let i = 0; i < 2; i++) {
           const opp = 1 - i;
           this._emitTo(i, 'game_over', {
@@ -273,6 +334,25 @@ class Room {
       }, RESULT_DISPLAY_SECONDS * 1000);
     } else {
       this._nextRoundHandle = setTimeout(() => this._dealNewRound(), RESULT_DISPLAY_SECONDS * 1000);
+    }
+  }
+
+  /// Sehirli bir mactaysa (this.city != null) kazanana havuzun tamamini
+  /// (entryFee * 2) oder; beraberlikte (winnerIndex null) her ikisine de
+  /// giris ucretini iade eder. En fazla bir kere calisir (_walletSettled).
+  async _settleWallets(winnerIndex) {
+    if (!this.city || this._walletSettled) return;
+    this._walletSettled = true;
+
+    try {
+      if (winnerIndex === null) {
+        await Promise.all(this.players.map((p) => refundEntryFee(p.uid, this.entryFee)));
+      } else {
+        await payReward(this.players[winnerIndex].uid, this.entryFee * 2);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[wallet] settle failed for room ${this.id}:`, err);
     }
   }
 
@@ -303,13 +383,45 @@ class Room {
     this._rematchGraceHandle = null;
     this.rematchRequestedBy = null;
 
+    // Bir rematch, ilk maçla ayni sehir/giris ucretini kullanir; start()
+    // yeni bir tur icin giris ucretini tekrar tahsil eder.
     for (const p of this.players) {
       p.score = 0;
       p.consecutivePasses = 0;
     }
     this.tieBreakRound = false;
-    this.status = 'active';
+    this._walletSettled = false;
 
+    if (this.city) {
+      chargeEntryFee(this.players[0].uid, this.players[1].uid, this.entryFee).then((result) => {
+        if (!result.ok) {
+          for (let i = 0; i < 2; i++) {
+            const isInsufficient = result.insufficientUids.includes(this.players[i].uid);
+            this._emitTo(i, 'room_error', {
+              message: isInsufficient
+                ? 'Bu şehre girmek için yeterli RC\'niz yok.'
+                : 'Rakibinizin yeterli RC\'si olmadığı için rematch iptal edildi.',
+            });
+          }
+          this.status = 'over';
+          this._finish();
+          return;
+        }
+        this.status = 'active';
+        for (let i = 0; i < 2; i++) this._emitTo(i, 'rematch_accepted', {});
+        this._dealNewRound();
+      }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[wallet] rematch chargeEntryFee failed for room ${this.id}:`, err);
+        this._emitTo(0, 'room_error', { message: 'Bir hata oluştu, rematch başlatılamadı.' });
+        this._emitTo(1, 'room_error', { message: 'Bir hata oluştu, rematch başlatılamadı.' });
+        this.status = 'over';
+        this._finish();
+      });
+      return;
+    }
+
+    this.status = 'active';
     for (let i = 0; i < 2; i++) {
       this._emitTo(i, 'rematch_accepted', {});
     }
@@ -338,7 +450,8 @@ class Room {
     this.players[index].connected = false;
 
     if (this.status === 'waiting') {
-      // Rakip henuz katilmamisti; oda anlamsizlasti.
+      // Rakip henuz katilmamisti; oda anlamsizlasti. Giris ucreti henuz
+      // hic alinmadi (start() cagrilmadi), iade gerekmiyor.
       this.status = 'over';
       this._finish();
       return;
@@ -357,7 +470,14 @@ class Room {
         reason: voluntary ? 'opponent_left' : 'opponent_disconnected',
       });
     }
-    this._finish();
+
+    // Rakip masadan kalkti/koptu: kalan oyuncu havuzun tamamini alir
+    // (bkz. sinif dokumani). _finish() cagrilmadan once bekleniyor ki
+    // odeme tamamlanmadan oda silinmesin.
+    this._settleWallets(opponent && opponent.connected ? oppIndex : null).finally(() => {
+      this._finish();
+    });
+    return;
   }
 
   _clearRoundTimer() {

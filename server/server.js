@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const RoomManager = require('./game/roomManager');
+const { getAuth } = require('./firebaseAdmin');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,6 +11,29 @@ const server = http.createServer(app);
 // domaininizi biliyorsaniz bunu o domainle sinirlayabilirsiniz.
 const io = new Server(server, {
   cors: { origin: '*' },
+});
+
+// Client baglanirken Firebase ID token'ini `auth: { token }` ile gonderir
+// (bkz. lib/core/network/socket_service.dart). Token dogrulanabilirse
+// socket.data.uid gercek, sahtesi yapilamaz bir kimlige baglanir — sehirli
+// (giris ucretli) maclarda cuzdan islemleri SADECE bu uid uzerinden
+// yapilir. Token yoksa/gecersizse baglanti reddedilmez (misafir olarak
+// devam eder) ama socket.data.uid null kalir; Room.start() bunu
+// kontrol edip sehirli maclara girisi engeller (bkz. server/game/room.js).
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    socket.data.uid = null;
+    return next();
+  }
+  try {
+    const decoded = await getAuth().verifyIdToken(token);
+    socket.data.uid = decoded.uid;
+  } catch (err) {
+    console.warn('[auth] gecersiz Firebase ID token, misafir olarak baglaniliyor:', err.message);
+    socket.data.uid = null;
+  }
+  next();
 });
 
 // Render/Railway gibi platformlar saglik kontrolu icin '/' adresine
@@ -22,9 +46,9 @@ app.get('/', (_req, res) => {
 const roomManager = new RoomManager(io);
 
 io.on('connection', (socket) => {
-  socket.on('quick_match', ({ name } = {}) => roomManager.quickMatch(socket, name));
-  socket.on('cancel_quick_match', () => roomManager.cancelQuickMatch(socket));
-  socket.on('create_room', ({ name } = {}) => roomManager.createPrivateRoom(socket, name));
+  socket.on('join_city_queue', ({ cityId, name } = {}) => roomManager.joinCityQueue(socket, cityId, name));
+  socket.on('cancel_city_queue', () => roomManager.cancelCityQueue(socket));
+  socket.on('create_room', ({ name, cityId } = {}) => roomManager.createPrivateRoom(socket, name, cityId));
   socket.on('join_room', ({ code, name } = {}) => roomManager.joinPrivateRoom(socket, code, name));
   socket.on('submit_choice', ({ choice } = {}) => roomManager.submitChoice(socket, choice));
   socket.on('request_rematch', () => roomManager.requestRematch(socket));

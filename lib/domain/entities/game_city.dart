@@ -12,4 +12,14 @@ class GameCity {
 
   /// Kural: kazanç her zaman giriş ücretinin 2 katıdır.
   int get rewardAmount => entryFee * 2;
+
+  /// Sunucudan (server/game/cities.js) gelen `{id, name, entryFee}`
+  /// haritasını ayrıştırır — çok oyunculu maç/oda olaylarında kullanılır.
+  factory GameCity.fromJson(Map<String, dynamic> json) {
+    return GameCity(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      entryFee: (json['entryFee'] as num).toInt(),
+    );
+  }
 }

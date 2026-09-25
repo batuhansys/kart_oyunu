@@ -37,6 +37,7 @@ class LocalAuthRepository implements AuthRepository {
   Future<Result<UserProfile>> register({
     required String username,
     required RegisterMethod method,
+    String? password,
   }) async {
     await Future.delayed(const Duration(milliseconds: 700));
 
