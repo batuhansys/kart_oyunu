@@ -2,6 +2,8 @@ const { randomCard } = require('./cards');
 const { calculateRound } = require('./scoring');
 const { chargeEntryFee, payReward, refundEntryFee } = require('./wallet');
 const { awardXp } = require('./leveling');
+const { awardFragment } = require('./workshop');
+const { consumePower } = require('./powerups');
 const {
   WIN_SCORE_THRESHOLD,
   LOSE_SCORE_THRESHOLD,
@@ -50,6 +52,11 @@ class Room {
 
     this.rematchRequestedBy = null; // 0|1|null
     this._walletSettled = false; // giris ucreti odendi mi (cift odul/iade onlemi)
+
+    // Bu elde her oyuncunun kullandigi guc (varsa): 'zorba'|'kalkan'|'kahin'|null.
+    // Her elde sifirlanir (bkz. _dealNewRound); bir oyuncu elde en fazla
+    // 1 guc kullanabilir (bkz. usePower).
+    this.activePower = [null, null];
 
     this._timeoutHandle = null;
     this._nextRoundHandle = null;
@@ -160,6 +167,7 @@ class Room {
     this.cards = [randomCard(), randomCard()];
     this.choices = [null, null];
     this.turnPhase = 'priority';
+    this.activePower = [null, null];
 
     this._clearRoundTimer();
     this._timeoutHandle = setTimeout(() => this._onPriorityTimeout(), DECISION_SECONDS * 1000);
@@ -192,6 +200,10 @@ class Room {
     if (choice === 'pass' && player.consecutivePasses >= MAX_CONSECUTIVE_PASSES) {
       return; // gecersiz istek (istemci normalde bu butonu zaten kapatir)
     }
+    // ZORBA: rakip bu gucu kullandiysa bu el pas gecemem (bkz. usePower).
+    if (choice === 'pass' && this.activePower[1 - index] === 'zorba') {
+      return;
+    }
 
     this.choices[index] = choice;
 
@@ -200,6 +212,57 @@ class Room {
     } else {
       this._clearRoundTimer();
       this._resolveRound();
+    }
+  }
+
+  /// Bir oyuncu oyun ici bir guc kullanmaya calisinca cagrilir. Envanter
+  /// dusumu (Firestore, firebase-admin ile) basarili olursa etkiyi bu
+  /// elin state'ine isler:
+  ///  - ZORBA: rakibin bu el pas gecmesini engeller (bkz. submitChoice).
+  ///  - KALKAN: bu elin ceza puanini 0'a sabitler (bkz. _resolveRound).
+  ///  - KAHIN: rakibin kartini ANINDA kullanan oyuncuya gonderir (client
+  ///    1 saniye gosterip gizler); rakibe HANGI gucun kullanildigi
+  ///    soylenmez (casusluk gizli kalir).
+  /// Bir oyuncu elde en fazla 1 guc kullanabilir.
+  async usePower(socketId, powerType) {
+    if (this.status !== 'active') return;
+    const index = this.indexOfSocket(socketId);
+    if (index === -1) return;
+    if (this.activePower[index]) return; // bu el zaten bir guc kullanildi
+    if (!['zorba', 'kalkan', 'kahin'].includes(powerType)) return;
+
+    const uid = this.players[index].uid;
+    if (!uid) return;
+
+    let consumed;
+    try {
+      consumed = await consumePower(uid, powerType);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[power] consume failed for room ${this.id}:`, err);
+      return;
+    }
+    if (!consumed) {
+      this._emitTo(index, 'power_error', { message: 'Bu güce sahip değilsin.' });
+      return;
+    }
+    // Baska bir kontrol sirasinda (async bosluk) el degismis olabilir -
+    // artik gecerli degilse envanter zaten dusuldu ama etki uygulanmaz.
+    if (this.status !== 'active' || this.activePower[index]) return;
+
+    this.activePower[index] = powerType;
+
+    const payload = { power: powerType };
+    if (powerType === 'kahin') {
+      payload.opponentCard = this.cards[1 - index];
+    }
+    this._emitTo(index, 'power_used', payload);
+
+    // ZORBA'nin etkisi zaten pas butonunu kapatarak rakibe belli olur,
+    // bu yuzden rakibe bilgi veriliyor (UI'da gostermesi icin). KALKAN/
+    // KAHIN gizli kalir.
+    if (powerType === 'zorba') {
+      this._emitTo(1 - index, 'opponent_used_power', { power: 'zorba' });
     }
   }
 
@@ -243,6 +306,15 @@ class Room {
       choiceB: this.choices[1],
     });
     const deltas = [deltaA, deltaB];
+
+    // KALKAN: bu eli kullanan oyuncu icin negatif bir delta'yi (ceza
+    // puanini) 0'a sabitler - kazanclari ETKILEMEZ (bkz. kullanici
+    // talebi). Sadece kendi delta'sina uygulanir.
+    for (let i = 0; i < 2; i++) {
+      if (this.activePower[i] === 'kalkan' && deltas[i] < 0) {
+        deltas[i] = 0;
+      }
+    }
 
     for (let i = 0; i < 2; i++) {
       this.players[i].score += deltas[i];
@@ -342,10 +414,10 @@ class Room {
   /// (entryFee * 2) oder; beraberlikte (winnerIndex null) her ikisine de
   /// giris ucretini iade eder. En fazla bir kere calisir (_walletSettled).
   ///
-  /// XP SADECE sehir kuyrugu (mode === 'city') maclarinda kazanana
-  /// verilir - "Arkadasinla Oyna" ile kurulan bir odada (mode === 'private',
-  /// bir sehir secilmis olsa bile) XP verilmez (kullanicinin talebi: bu
-  /// mod sehir parcasi da vermeyecek, bkz. Faz 3). Miktar sehrin giris
+  /// XP ve SEHIR PARCASI SADECE sehir kuyrugu (mode === 'city') maclarinda
+  /// kazanana verilir - "Arkadasinla Oyna" ile kurulan bir odada
+  /// (mode === 'private', bir sehir secilmis olsa bile) ikisi de
+  /// verilmez (kullanicinin acik talebi). XP miktari sehrin giris
   /// ucretinin onda biri (istanbul 250 -> 25xp, maras 250000 -> 25000xp).
   async _settleWallets(winnerIndex) {
     if (!this.city || this._walletSettled) return;
@@ -359,6 +431,7 @@ class Room {
         if (this.mode === 'city') {
           const xpGained = Math.max(1, Math.round(this.entryFee / 10));
           await awardXp(this.players[winnerIndex].uid, xpGained);
+          await awardFragment(this.players[winnerIndex].uid, this.city.id);
         }
       }
     } catch (err) {

@@ -7,6 +7,7 @@ const { payReward } = require('./game/wallet');
 const { claimLevelRewards } = require('./game/leveling');
 const { SHOP_PACKAGES } = require('./game/shopPackages');
 const { spinWheel } = require('./game/dailyWheel');
+const { mergeFragments, openChest } = require('./game/workshop');
 
 const app = express();
 const server = http.createServer(app);
@@ -134,6 +135,38 @@ app.post('/api/wheel/spin', requireAuth, async (req, res) => {
   }
 });
 
+// Atolye: 5 parcayi 1 sandiga donusturur.
+app.post('/api/workshop/merge', requireAuth, async (req, res) => {
+  const cityId = req.body?.cityId;
+  try {
+    const result = await mergeFragments(req.uid, cityId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[workshop] merge failed:', err);
+    res.status(500).json({ error: 'Birleştirme başarısız.' });
+  }
+});
+
+// Atolye: 1 sandik acar, RC veya guc odulu verir.
+app.post('/api/workshop/open-chest', requireAuth, async (req, res) => {
+  const cityId = req.body?.cityId;
+  try {
+    const result = await openChest(req.uid, cityId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[workshop] open-chest failed:', err);
+    res.status(500).json({ error: 'Sandık açılamadı.' });
+  }
+});
+
 // Royal Pass: gercek odeme entegrasyonu sonradan baglanacak (bkz. magaza
 // ile ayni not) - simdilik dogrudan aktif eder. leveling.js zaten
 // isRoyalPass'i okuyup seviye atlama/kilometre tasi odullerini 2x yapiyor.
@@ -158,6 +191,7 @@ io.on('connection', (socket) => {
   socket.on('join_room', ({ code, name } = {}) => roomManager.joinPrivateRoom(socket, code, name));
   socket.on('invite_friend', ({ targetUid } = {}) => roomManager.inviteFriend(socket, targetUid));
   socket.on('submit_choice', ({ choice } = {}) => roomManager.submitChoice(socket, choice));
+  socket.on('use_power', ({ power } = {}) => roomManager.usePower(socket, power));
   socket.on('request_rematch', () => roomManager.requestRematch(socket));
   socket.on('accept_rematch', () => roomManager.acceptRematch(socket));
   socket.on('leave_room', () => roomManager.leaveRoom(socket));

@@ -89,6 +89,22 @@ class MultiplayerState {
   /// Su an cevap bekleyen, bir arkadastan gelen oda daveti (varsa).
   final GameInvite? incomingInvite;
 
+  // Guc kullanimi (ZORBA/KALKAN/KAHIN) - bkz. server/game/room.js usePower.
+  /// Bu elde HANGI gucu kullandim ('zorba'|'kalkan'|'kahin'), yoksa null.
+  /// Bir elde en fazla 1 guc kullanilabilir; her yeni elde sifirlanir.
+  final String? usedPowerThisRound;
+
+  /// Rakip bu el bana ZORBA kullandi mi (pas secenegi kapanir).
+  final bool opponentUsedZorba;
+
+  /// KAHIN kullanildiginda ANINDA gelen rakip karti; client 1 saniye
+  /// gosterip gizler (bkz. multiplayer_notifier.dart _kahinRevealTimer).
+  final PlayingCard? kahinRevealCard;
+
+  /// Bir guc kullanma denemesi basarisiz olunca (orn. envanter bosaldi)
+  /// gelen gecici hata mesaji.
+  final String? powerErrorMessage;
+
   const MultiplayerState({
     this.stage = MpStage.disconnected,
     this.errorMessage,
@@ -110,9 +126,14 @@ class MultiplayerState {
     this.finishReason,
     this.rematchStatus = RematchStatus.none,
     this.incomingInvite,
+    this.usedPowerThisRound,
+    this.opponentUsedZorba = false,
+    this.kahinRevealCard,
+    this.powerErrorMessage,
   });
 
-  bool get canPass => yourConsecutivePasses < 2; // kMaxConsecutivePasses ile ayni kural
+  bool get canPass =>
+      yourConsecutivePasses < 2 && !opponentUsedZorba; // kMaxConsecutivePasses ile ayni kural
 
   MultiplayerState copyWith({
     MpStage? stage,
@@ -143,6 +164,13 @@ class MultiplayerState {
     RematchStatus? rematchStatus,
     GameInvite? incomingInvite,
     bool clearIncomingInvite = false,
+    String? usedPowerThisRound,
+    bool clearUsedPowerThisRound = false,
+    bool? opponentUsedZorba,
+    PlayingCard? kahinRevealCard,
+    bool clearKahinRevealCard = false,
+    String? powerErrorMessage,
+    bool clearPowerError = false,
   }) {
     return MultiplayerState(
       stage: stage ?? this.stage,
@@ -165,6 +193,11 @@ class MultiplayerState {
       finishReason: finishReason ?? this.finishReason,
       rematchStatus: rematchStatus ?? this.rematchStatus,
       incomingInvite: clearIncomingInvite ? null : (incomingInvite ?? this.incomingInvite),
+      usedPowerThisRound:
+          clearUsedPowerThisRound ? null : (usedPowerThisRound ?? this.usedPowerThisRound),
+      opponentUsedZorba: opponentUsedZorba ?? this.opponentUsedZorba,
+      kahinRevealCard: clearKahinRevealCard ? null : (kahinRevealCard ?? this.kahinRevealCard),
+      powerErrorMessage: clearPowerError ? null : (powerErrorMessage ?? this.powerErrorMessage),
     );
   }
 }

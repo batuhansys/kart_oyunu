@@ -13,6 +13,7 @@ import '../../state/sound_provider.dart';
 import '../game/widgets/card_slot.dart';
 import '../game/widgets/choice_buttons.dart';
 import 'widgets/mp_history_panel.dart';
+import 'widgets/power_box_row.dart';
 
 /// Coklu oyunculu oyun masasi. Zamanlayici burada sadece gorseldir —
 /// asil zaman asimi kararini her zaman sunucu verir, bu yuzden istemci
@@ -257,6 +258,9 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
                             child: Text('Son Eller', style: TextStyle(color: Colors.white70)),
                           ),
                           Expanded(child: MpHistoryPanel(entries: state.history)),
+                          const SizedBox(height: 8),
+                          const PowerBoxRow(),
+                          const SizedBox(height: 4),
                         ],
                       ),
                     ),
@@ -265,8 +269,44 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
               ),
             ),
           ),
+          if (state.kahinRevealCard != null) _buildKahinRevealBanner(state.kahinRevealCard!),
           if (state.stage == MpStage.finished) _buildResultOverlay(state),
         ],
+      ),
+    );
+  }
+
+  Widget _buildKahinRevealBanner(PlayingCard card) {
+    final isRed = card.suit == Suit.hearts || card.suit == Suit.diamonds;
+    return Positioned(
+      top: 12,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceDark,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.gold, width: 2),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.remove_red_eye, color: AppColors.gold, size: 18),
+              const SizedBox(width: 8),
+              const Text('Rakibin kartı: ', style: TextStyle(color: Colors.white70)),
+              Text(
+                '${card.rankLabel}${card.suitSymbol}',
+                style: TextStyle(
+                  color: isRed ? AppColors.cardRed : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

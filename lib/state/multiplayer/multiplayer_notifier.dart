@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -48,10 +50,12 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
 
   io.Socket? _socket;
   bool _disposed = false;
+  Timer? _kahinRevealTimer;
 
   @override
   void dispose() {
     _disposed = true;
+    _kahinRevealTimer?.cancel();
     super.dispose();
   }
 
@@ -154,6 +158,43 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
             clearYourChoice: true,
             clearOpponentChoice: true,
             isYourTurn: _asBool(map['isYourTurn']),
+            clearUsedPowerThisRound: true,
+            opponentUsedZorba: false,
+            clearKahinRevealCard: true,
+          ));
+      _kahinRevealTimer?.cancel();
+    });
+
+    // Guc kullanimi (ZORBA/KALKAN/KAHIN) - bkz. server/game/room.js usePower.
+    socket.on('power_used', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      final power = map['power'] as String;
+      PlayingCard? revealCard;
+      if (power == 'kahin' && map['opponentCard'] != null) {
+        revealCard = PlayingCard.fromJson(Map<String, dynamic>.from(map['opponentCard'] as Map));
+      }
+      _setState(() => state.copyWith(usedPowerThisRound: power, kahinRevealCard: revealCard));
+
+      if (revealCard != null) {
+        _kahinRevealTimer?.cancel();
+        _kahinRevealTimer = Timer(const Duration(seconds: 1), () {
+          _setState(() => state.copyWith(clearKahinRevealCard: true));
+        });
+      }
+    });
+
+    // Sadece ZORBA icin gelir (KALKAN/KAHIN gizli kalir) - bkz. server yorumu.
+    socket.on('opponent_used_power', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      if (map['power'] == 'zorba') {
+        _setState(() => state.copyWith(opponentUsedZorba: true));
+      }
+    });
+
+    socket.on('power_error', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      _setState(() => state.copyWith(
+            powerErrorMessage: (map['message'] as String?) ?? 'Güç kullanılamadı.',
           ));
     });
 
@@ -299,6 +340,19 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
     if (choice == PlayerChoice.pass && !state.canPass) return;
     _socket?.emit('submit_choice', {'choice': choice.wireValue});
     _setState(() => state.copyWith(yourChoice: choice));
+  }
+
+  /// Oyun ici bir guc kullanir (ZORBA/KALKAN/KAHIN). Envanter kontrolu
+  /// ve dusumu sunucuda yapilir (bkz. server/game/powerups.js); burada
+  /// sadece bu elde zaten bir guc kullanilmadiysa istegi yollariz.
+  void usePower(String power) {
+    if (state.stage != MpStage.playing) return;
+    if (state.usedPowerThisRound != null) return;
+    _socket?.emit('use_power', {'power': power});
+  }
+
+  void clearPowerError() {
+    _setState(() => state.copyWith(clearPowerError: true));
   }
 
   /// Masadan kalkma: aktif bir es varsa rakip otomatik kazanir (bkz.

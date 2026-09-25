@@ -190,6 +190,18 @@ class RoomManager {
     room.submitChoice(socket.id, choice);
   }
 
+  usePower(socket, powerType) {
+    const code = this.playerRoom.get(socket.id);
+    if (!code) return;
+    const room = this.rooms.get(code);
+    if (room) {
+      room.usePower(socket.id, powerType).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[power] usePower failed for room ${code}:`, err);
+      });
+    }
+  }
+
   requestRematch(socket) {
     const code = this.playerRoom.get(socket.id);
     if (!code) return;
