@@ -114,6 +114,20 @@ class RoomManager {
     room.submitChoice(socket.id, choice);
   }
 
+  requestRematch(socket) {
+    const code = this.playerRoom.get(socket.id);
+    if (!code) return;
+    const room = this.rooms.get(code);
+    if (room) room.requestRematch(socket.id);
+  }
+
+  acceptRematch(socket) {
+    const code = this.playerRoom.get(socket.id);
+    if (!code) return;
+    const room = this.rooms.get(code);
+    if (room) room.acceptRematch(socket.id);
+  }
+
   leaveRoom(socket) {
     const code = this.playerRoom.get(socket.id);
     if (!code) return;

@@ -7,6 +7,14 @@ import '../../domain/entities/player_choice.dart';
 import '../../domain/entities/playing_card.dart';
 import 'multiplayer_state.dart';
 
+/// `as bool` / `as bool?`, Flutter web'de socket.io-client'in JS-interop
+/// koprusunden gelen ham JS boolean degerlerinde DDC'nin sikca calisan
+/// tip kontrolunde (_asBool) beklenmedik sekilde firlatabiliyor (int/String
+/// castlarinda bu sorun yok). `== true` karsilastirmasi bu RTI kontrolunu
+/// gerektirmedigi icin guvenli calisir.
+bool _asBool(dynamic v) => v == true;
+bool? _asBoolOrNull(dynamic v) => v == null ? null : v == true;
+
 /// Coklu oyunculu (multiplayer) akisin tum state machine'ini yonetir.
 /// Sunucu (server/) puanlama ve zaman asimi konusunda tek otoritedir;
 /// bu notifier sadece sunucudan gelen olaylari state'e yansitir ve
@@ -110,12 +118,17 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
             clearOpponentCard: true,
             clearYourChoice: true,
             clearOpponentChoice: true,
-            opponentHasChosen: false,
+            isYourTurn: _asBool(map['isYourTurn']),
           ));
     });
 
-    socket.on('opponent_choice_made', (_) {
-      _setState(() => state.copyWith(opponentHasChosen: true));
+    // Oncelikli oyuncu secimini yapinca (veya suresi dolunca) gelir:
+    // rakibin secim RENGI acilir (karti degil) ve simdi bizim siramiz
+    // baslar. bkz. server/game/room.js _advanceToReactivePhase.
+    socket.on('priority_revealed', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      final revealedChoice = playerChoiceFromWire(map['choice'] as String);
+      _setState(() => state.copyWith(opponentChoice: revealedChoice, isYourTurn: true));
     });
 
     socket.on('round_result', (data) {
@@ -156,15 +169,36 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
       final map = Map<String, dynamic>.from(data as Map);
       _setState(() => state.copyWith(
             stage: MpStage.finished,
-            youWon: map['youWon'] as bool?,
+            youWon: _asBoolOrNull(map['youWon']),
             yourScore: map['yourScore'] as int,
             opponentScore: map['opponentScore'] as int,
             finishReason: map['reason'] as String?,
+            rematchStatus: RematchStatus.none,
+          ));
+    });
+
+    socket.on('rematch_pending', (_) {
+      _setState(() => state.copyWith(rematchStatus: RematchStatus.requestedByMe));
+    });
+
+    socket.on('rematch_requested', (_) {
+      _setState(() => state.copyWith(rematchStatus: RematchStatus.requestedByOpponent));
+    });
+
+    socket.on('rematch_accepted', (_) {
+      _setState(() => MultiplayerState(
+            stage: MpStage.playing,
+            myIndex: state.myIndex,
+            opponentName: state.opponentName,
           ));
     });
   }
 
-  bool get canSubmitChoice => state.stage == MpStage.playing && state.yourChoice == null;
+  bool get canSubmitChoice =>
+      state.stage == MpStage.playing &&
+      state.yourCard != null &&
+      state.yourChoice == null &&
+      state.isYourTurn;
 
   void quickMatch(String name) {
     if (state.stage != MpStage.menu) return;
@@ -202,7 +236,20 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   }
 
   void backToMenuAfterFinish() {
+    _socket?.emit('leave_room');
     _setState(() => const MultiplayerState(stage: MpStage.menu));
+  }
+
+  /// Oyun sonu ekraninda "Tekrar Meydan Oku"ya basildiginda cagrilir.
+  void requestRematch() {
+    if (state.stage != MpStage.finished) return;
+    _socket?.emit('request_rematch');
+  }
+
+  /// Rakibin meydan okumasini "Kabul Et" ile onaylar.
+  void acceptRematch() {
+    if (state.stage != MpStage.finished) return;
+    _socket?.emit('accept_rematch');
   }
 
   void disconnectAndExit() {

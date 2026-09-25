@@ -9,18 +9,17 @@ const {
 } = require('./constants');
 
 const VALID_CHOICES = new Set(['risk', 'doubleRisk', 'pass']);
+const REMATCH_GRACE_SECONDS = 90;
 
 /**
  * Tek bir esleşmenin (2 oyuncu) tum state machine'ini ve zamanlayicilarini
  * yonetir. lib/state/game/game_notifier.dart + game_state.dart'in iki
  * gercek insan oyuncu icin sunucu tarafi karsiligidir.
  *
- * Onemli fark: orijinal tek-oyunculu oyunda "kim once secer" diye bir
- * sira vardi (AI, kullanicinin secimini "gorerek" karar veriyordu).
- * Iki gercek oyuncu icin buna gerek yok: ikisi de ayni anda, birbirinin
- * secimini gormeden karar verir; sunucu ikisi de secince (veya sure
- * dolunca) sonucu ayni anda acar. Bu yuzden burada "ilk oyuncu" kavrami
- * yoktur.
+ * Sira/oncelik kurali (kaynak tek-oyunculu oyundan birebir tasindi):
+ * her elde bir oyuncu "oncelikli"dir ve once o karar verir; karari
+ * (karti degil, sadece riske-gir/pas rengi) hemen rakibe acilir, rakip
+ * bu bilgiyi gorerek kendi karari verir. Oncelik her elde rakibe gecer.
  */
 class Room {
   constructor({ id, mode, io, onFinished }) {
@@ -36,8 +35,15 @@ class Room {
     this.choices = [null, null];
     this.tieBreakRound = false;
 
+    this.priorityIndex = null; // bu el kimin once sececegi (0|1)
+    this.turnPhase = null; // 'priority' | 'reactive'
+
+    this.rematchRequestedBy = null; // 0|1|null
+
     this._timeoutHandle = null;
     this._nextRoundHandle = null;
+    this._gameOverHandle = null;
+    this._rematchGraceHandle = null;
   }
 
   get isFull() {
@@ -70,6 +76,9 @@ class Room {
   /// ilk eli dagitir.
   start() {
     this.status = 'active';
+    // Ilk elde kim once sececek rastgele belirlenir; sonraki her elde
+    // rakibe gecer (bkz. _dealNewRound).
+    this.priorityIndex = Math.round(Math.random());
     for (let i = 0; i < 2; i++) {
       const opponent = this.players[1 - i];
       this._emitTo(i, 'match_found', {
@@ -84,15 +93,26 @@ class Room {
   _dealNewRound() {
     if (this.status !== 'active') return;
 
+    if (this.roundId > 0) {
+      // Ilk el disinda oncelik her zaman bir onceki elin oncelikli
+      // oyuncusundan rakibe gecer.
+      this.priorityIndex = 1 - this.priorityIndex;
+    }
+
     this.roundId += 1;
     this.cards = [randomCard(), randomCard()];
     this.choices = [null, null];
+    this.turnPhase = 'priority';
 
-    if (this._timeoutHandle) clearTimeout(this._timeoutHandle);
-    this._timeoutHandle = setTimeout(() => this._onRoundTimeout(), DECISION_SECONDS * 1000);
+    this._clearRoundTimer();
+    this._timeoutHandle = setTimeout(() => this._onPriorityTimeout(), DECISION_SECONDS * 1000);
 
     for (let i = 0; i < 2; i++) {
-      this._emitTo(i, 'round_start', { roundId: this.roundId, yourCard: this.cards[i] });
+      this._emitTo(i, 'round_start', {
+        roundId: this.roundId,
+        yourCard: this.cards[i],
+        isYourTurn: i === this.priorityIndex,
+      });
     }
   }
 
@@ -101,6 +121,14 @@ class Room {
     const index = this.indexOfSocket(socketId);
     if (index === -1) return;
     if (this.choices[index] !== null) return; // zaten secim yapmis
+
+    // Sira kuralinin sunucu tarafi zorunlu kilinmasi: oncelik asamasinda
+    // sadece priorityIndex, tepki asamasinda sadece diger oyuncu
+    // secim yapabilir.
+    const isPriorityTurn = this.turnPhase === 'priority' && index === this.priorityIndex;
+    const isReactiveTurn = this.turnPhase === 'reactive' && index !== this.priorityIndex;
+    if (!isPriorityTurn && !isReactiveTurn) return;
+
     if (!VALID_CHOICES.has(choice)) return;
 
     const player = this.players[index];
@@ -109,22 +137,48 @@ class Room {
     }
 
     this.choices[index] = choice;
-    this._emitTo(1 - index, 'opponent_choice_made', {});
 
-    if (this.choices[0] !== null && this.choices[1] !== null) {
-      if (this._timeoutHandle) clearTimeout(this._timeoutHandle);
+    if (isPriorityTurn) {
+      this._advanceToReactivePhase();
+    } else {
+      this._clearRoundTimer();
       this._resolveRound();
     }
   }
 
-  _onRoundTimeout() {
-    for (let i = 0; i < 2; i++) {
-      if (this.choices[i] === null) this.choices[i] = 'timeout';
+  _onPriorityTimeout() {
+    if (this.choices[this.priorityIndex] === null) {
+      this.choices[this.priorityIndex] = 'timeout';
+    }
+    this._advanceToReactivePhase();
+  }
+
+  /// Oncelikli oyuncu secimini (veya suresi dolunca zaman asimini) yapinca
+  /// cagrilir: bu secimin RENGI (karti degil) rakibe hemen acilir ve
+  /// rakibin kendi 7 saniyelik karar suresi baslar.
+  _advanceToReactivePhase() {
+    this.turnPhase = 'reactive';
+    const reactiveIndex = 1 - this.priorityIndex;
+
+    this._emitTo(reactiveIndex, 'priority_revealed', {
+      choice: this.choices[this.priorityIndex],
+    });
+
+    this._clearRoundTimer();
+    this._timeoutHandle = setTimeout(() => this._onReactiveTimeout(), DECISION_SECONDS * 1000);
+  }
+
+  _onReactiveTimeout() {
+    const reactiveIndex = 1 - this.priorityIndex;
+    if (this.choices[reactiveIndex] === null) {
+      this.choices[reactiveIndex] = 'timeout';
     }
     this._resolveRound();
   }
 
   _resolveRound() {
+    this._clearRoundTimer();
+
     const { deltaA, deltaB } = calculateRound({
       cardA: this.cards[0],
       choiceA: this.choices[0],
@@ -200,20 +254,66 @@ class Room {
     }
 
     if (gameOver) {
-      this.status = 'over';
-      for (let i = 0; i < 2; i++) {
-        const opp = 1 - i;
-        this._emitTo(i, 'game_over', {
-          youWon: winnerIndex === null ? null : winnerIndex === i,
-          yourScore: this.players[i].score,
-          opponentScore: this.players[opp].score,
-          reason: 'score',
-        });
-      }
-      this._finish();
+      // Son elin kartlarini/sonucunu normal el gecisi kadar (3sn)
+      // gosterdikten sonra kazanan/kaybeden ekranini aciyoruz; boylece
+      // oyuncu son elin kartlarini gormeden aniden sonuc ekranina
+      // dusmuyor.
+      this._gameOverHandle = setTimeout(() => {
+        this.status = 'over';
+        for (let i = 0; i < 2; i++) {
+          const opp = 1 - i;
+          this._emitTo(i, 'game_over', {
+            youWon: winnerIndex === null ? null : winnerIndex === i,
+            yourScore: this.players[i].score,
+            opponentScore: this.players[opp].score,
+            reason: 'score',
+          });
+        }
+        this._startRematchGracePeriod();
+      }, RESULT_DISPLAY_SECONDS * 1000);
     } else {
       this._nextRoundHandle = setTimeout(() => this._dealNewRound(), RESULT_DISPLAY_SECONDS * 1000);
     }
+  }
+
+  /// Oyun bitince odayi hemen yok etmek yerine bir sure daha acik tutar,
+  /// boylece oyuncular "Tekrar Meydan Oku" ile ayni odada yeniden
+  /// eslesebilir. Sure dolarsa veya biri ayrilirsa oda kapanir.
+  _startRematchGracePeriod() {
+    this.rematchRequestedBy = null;
+    this._rematchGraceHandle = setTimeout(() => this._finish(), REMATCH_GRACE_SECONDS * 1000);
+  }
+
+  requestRematch(socketId) {
+    if (this.status !== 'over') return;
+    const index = this.indexOfSocket(socketId);
+    if (index === -1 || this.rematchRequestedBy !== null) return;
+
+    this.rematchRequestedBy = index;
+    this._emitTo(index, 'rematch_pending', {});
+    this._emitTo(1 - index, 'rematch_requested', {});
+  }
+
+  acceptRematch(socketId) {
+    if (this.status !== 'over' || this.rematchRequestedBy === null) return;
+    const index = this.indexOfSocket(socketId);
+    if (index === -1 || index === this.rematchRequestedBy) return; // sadece rakip onaylayabilir
+
+    if (this._rematchGraceHandle) clearTimeout(this._rematchGraceHandle);
+    this._rematchGraceHandle = null;
+    this.rematchRequestedBy = null;
+
+    for (const p of this.players) {
+      p.score = 0;
+      p.consecutivePasses = 0;
+    }
+    this.tieBreakRound = false;
+    this.status = 'active';
+
+    for (let i = 0; i < 2; i++) {
+      this._emitTo(i, 'rematch_accepted', {});
+    }
+    this._dealNewRound();
   }
 
   /// Bir oyuncu baglantisini kopardiginda (veya bilincli olarak masadan
@@ -222,7 +322,18 @@ class Room {
   handlePlayerGone(socketId, { voluntary } = { voluntary: false }) {
     const index = this.indexOfSocket(socketId);
     if (index === -1) return;
-    if (this.status === 'over') return;
+    if (this.status === 'over') {
+      // Oyun bitmis, rematch bekleme surecindeydi: rakip hala
+      // bagliysa haberdar edip odayi kapatiyoruz.
+      this.players[index].connected = false;
+      const oppIndex = 1 - index;
+      const opponent = this.players[oppIndex];
+      if (opponent && opponent.connected) {
+        this._emitTo(oppIndex, 'opponent_left', {});
+      }
+      this._finish();
+      return;
+    }
 
     this.players[index].connected = false;
 
@@ -233,7 +344,7 @@ class Room {
       return;
     }
 
-    this._clearTimers();
+    this._clearRoundTimer();
     this.status = 'over';
     const oppIndex = 1 - index;
     const opponent = this.players[oppIndex];
@@ -249,11 +360,19 @@ class Room {
     this._finish();
   }
 
-  _clearTimers() {
+  _clearRoundTimer() {
     if (this._timeoutHandle) clearTimeout(this._timeoutHandle);
-    if (this._nextRoundHandle) clearTimeout(this._nextRoundHandle);
     this._timeoutHandle = null;
+  }
+
+  _clearTimers() {
+    this._clearRoundTimer();
+    if (this._nextRoundHandle) clearTimeout(this._nextRoundHandle);
+    if (this._gameOverHandle) clearTimeout(this._gameOverHandle);
+    if (this._rematchGraceHandle) clearTimeout(this._rematchGraceHandle);
     this._nextRoundHandle = null;
+    this._gameOverHandle = null;
+    this._rematchGraceHandle = null;
   }
 
   _finish() {

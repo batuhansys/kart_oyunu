@@ -26,6 +26,18 @@ enum MpStage {
   finished,
 }
 
+/// "Tekrar Meydan Oku" akisinin durumu (bkz. oyun sonu ekrani).
+enum RematchStatus {
+  /// Henuz kimse meydan okumadi.
+  none,
+
+  /// Ben meydan okudum, rakibin onaylamasi bekleniyor.
+  requestedByMe,
+
+  /// Rakip meydan okudu, benim onaylamam bekleniyor.
+  requestedByOpponent,
+}
+
 class MultiplayerState {
   final MpStage stage;
   final String? errorMessage;
@@ -41,7 +53,13 @@ class MultiplayerState {
   final PlayingCard? opponentCard; // sadece acilim (reveal) aninda dolu
   final PlayerChoice? yourChoice;
   final PlayerChoice? opponentChoice;
-  final bool opponentHasChosen;
+
+  /// Bu elde once secme (oncelik) sirasi sende mi? Sunucu her elde
+  /// bunu rakibe cevirir (bkz. server/game/room.js). false ise once
+  /// rakip sececek, onun secim RENGI acildiktan sonra senin siran
+  /// gelecek (priority_revealed olayi).
+  final bool isYourTurn;
+
   final int yourScore;
   final int opponentScore;
   final int yourConsecutivePasses;
@@ -50,6 +68,7 @@ class MultiplayerState {
   // Oyun sonu
   final bool? youWon; // null: berabere/ikisi de kaybetti
   final String? finishReason; // 'score' | 'opponent_left' | 'opponent_disconnected'
+  final RematchStatus rematchStatus;
 
   const MultiplayerState({
     this.stage = MpStage.disconnected,
@@ -62,13 +81,14 @@ class MultiplayerState {
     this.opponentCard,
     this.yourChoice,
     this.opponentChoice,
-    this.opponentHasChosen = false,
+    this.isYourTurn = true,
     this.yourScore = 0,
     this.opponentScore = 0,
     this.yourConsecutivePasses = 0,
     this.history = const [],
     this.youWon,
     this.finishReason,
+    this.rematchStatus = RematchStatus.none,
   });
 
   bool get canPass => yourConsecutivePasses < 2; // kMaxConsecutivePasses ile ayni kural
@@ -89,7 +109,7 @@ class MultiplayerState {
     bool clearYourChoice = false,
     PlayerChoice? opponentChoice,
     bool clearOpponentChoice = false,
-    bool? opponentHasChosen,
+    bool? isYourTurn,
     int? yourScore,
     int? opponentScore,
     int? yourConsecutivePasses,
@@ -97,6 +117,7 @@ class MultiplayerState {
     bool? youWon,
     bool clearYouWon = false,
     String? finishReason,
+    RematchStatus? rematchStatus,
   }) {
     return MultiplayerState(
       stage: stage ?? this.stage,
@@ -109,13 +130,14 @@ class MultiplayerState {
       opponentCard: clearOpponentCard ? null : (opponentCard ?? this.opponentCard),
       yourChoice: clearYourChoice ? null : (yourChoice ?? this.yourChoice),
       opponentChoice: clearOpponentChoice ? null : (opponentChoice ?? this.opponentChoice),
-      opponentHasChosen: opponentHasChosen ?? this.opponentHasChosen,
+      isYourTurn: isYourTurn ?? this.isYourTurn,
       yourScore: yourScore ?? this.yourScore,
       opponentScore: opponentScore ?? this.opponentScore,
       yourConsecutivePasses: yourConsecutivePasses ?? this.yourConsecutivePasses,
       history: history ?? this.history,
       youWon: clearYouWon ? null : (youWon ?? this.youWon),
       finishReason: finishReason ?? this.finishReason,
+      rematchStatus: rematchStatus ?? this.rematchStatus,
     );
   }
 }

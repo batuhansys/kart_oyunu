@@ -27,6 +27,8 @@ io.on('connection', (socket) => {
   socket.on('create_room', ({ name } = {}) => roomManager.createPrivateRoom(socket, name));
   socket.on('join_room', ({ code, name } = {}) => roomManager.joinPrivateRoom(socket, code, name));
   socket.on('submit_choice', ({ choice } = {}) => roomManager.submitChoice(socket, choice));
+  socket.on('request_rematch', () => roomManager.requestRematch(socket));
+  socket.on('accept_rematch', () => roomManager.acceptRematch(socket));
   socket.on('leave_room', () => roomManager.leaveRoom(socket));
   socket.on('disconnect', () => roomManager.handleDisconnect(socket));
 });

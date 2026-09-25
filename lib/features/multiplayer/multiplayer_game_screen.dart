@@ -30,7 +30,7 @@ class MultiplayerGameScreen extends ConsumerStatefulWidget {
 class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _timerController;
-  int? _timerRoundId;
+  bool _wasWaitingForYou = false;
 
   @override
   void initState() {
@@ -108,9 +108,16 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
       }
     });
 
-    final waitingForYou = state.stage == MpStage.playing && state.yourChoice == null;
-    if (waitingForYou && _timerRoundId != state.roundId) {
-      _timerRoundId = state.roundId;
+    // Sira tabanli oyunda "senin siran" iki farkli anda baslayabilir:
+    // yeni el basinda (oncelik sendeyse) veya el ortasinda rakibin
+    // secimi acildiginda (isYourTurn false'tan true'ya donunce). Bu
+    // yuzden zamanlayiciyi roundId yerine bu geciste (false->true)
+    // tetikliyoruz.
+    final waitingForYou = state.stage == MpStage.playing &&
+        state.yourCard != null &&
+        state.yourChoice == null &&
+        state.isYourTurn;
+    if (waitingForYou && !_wasWaitingForYou) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _timerController
@@ -120,6 +127,18 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
       });
     } else if (!waitingForYou) {
       _timerController.stop();
+    }
+    _wasWaitingForYou = waitingForYou;
+
+    String? turnStatusText;
+    if (state.stage == MpStage.playing) {
+      if (state.yourChoice != null) {
+        turnStatusText = 'Rakip bekleniyor...';
+      } else if (!state.isYourTurn) {
+        turnStatusText = 'Önce rakip seçecek, bekleyin...';
+      } else {
+        turnStatusText = 'Sıra sende, tercihini yap!';
+      }
     }
 
     final yourFrameColor = state.yourChoice == null ? null : _colorForChoice(state.yourChoice!);
@@ -179,11 +198,6 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
                                     ),
                                   ],
                                 ),
-                                if (state.opponentHasChosen && !opponentCardRevealed)
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 2),
-                                    child: Text('kararını verdi ✓', style: TextStyle(color: Colors.white38, fontSize: 10)),
-                                  ),
                                 const SizedBox(height: 4),
                                 CardSlot(
                                   card: state.opponentCard ?? placeholderCard,
@@ -195,10 +209,24 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
                           ],
                         ),
                         const Spacer(),
+                        if (turnStatusText != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Text(
+                              turnStatusText,
+                              style: TextStyle(
+                                color: state.isYourTurn && state.yourChoice == null
+                                    ? AppColors.gold
+                                    : Colors.white54,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           child: ChoiceButtons(
-                            enabled: state.stage == MpStage.playing && state.yourChoice == null,
+                            enabled: waitingForYou,
                             canPass: state.canPass,
                             onChoice: (choice) {
                               _timerController.stop();
@@ -278,6 +306,10 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
               ],
               const SizedBox(height: 32),
               ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.foldRed,
+                  foregroundColor: Colors.white,
+                ),
                 onPressed: () {
                   ref.read(multiplayerProvider.notifier).backToMenuAfterFinish();
                   if (context.canPop()) context.pop();
@@ -287,9 +319,51 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
                   child: Text('Lobiye Dön'),
                 ),
               ),
+              const SizedBox(height: 12),
+              if (state.finishReason != 'opponent_left' &&
+                  state.finishReason != 'opponent_disconnected')
+                _rematchButton(state),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _rematchButton(MultiplayerState state) {
+    late final String label;
+    late final Color color;
+    late final VoidCallback? onPressed;
+
+    switch (state.rematchStatus) {
+      case RematchStatus.none:
+        label = 'Tekrar Meydan Oku';
+        color = AppColors.gold;
+        onPressed = () => ref.read(multiplayerProvider.notifier).requestRematch();
+        break;
+      case RematchStatus.requestedByMe:
+        label = 'Rakip Bekleniyor...';
+        color = Colors.green;
+        onPressed = null;
+        break;
+      case RematchStatus.requestedByOpponent:
+        label = 'Rakip Meydan Okudu! Kabul Et';
+        color = Colors.green;
+        onPressed = () => ref.read(multiplayerProvider.notifier).acceptRematch();
+        break;
+    }
+
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.black,
+        disabledBackgroundColor: color,
+        disabledForegroundColor: Colors.black87,
+      ),
+      onPressed: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
   }
