@@ -55,7 +55,12 @@ service cloud.firestore {
         (resource == null || resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
       allow create: if isSignedIn() && request.resource.data.fromUid == request.auth.uid;
       allow update: if isSignedIn() && resource.data.toUid == request.auth.uid;
-      allow delete: if false;
+      // Kabul edilmis bir arkadasligi taraflardan biri sonlandirabilir
+      // (bkz. FriendsScreen "Arkadaşlıktan Çıkar"). Henuz pending/declined
+      // olan bir istek silinemez — gonderen "geri cekmek" isterse bu MVP
+      // kapsaminda desteklenmiyor.
+      allow delete: if isSignedIn() && resource.data.status == 'accepted' &&
+        (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
     }
 
     match /{document=**} {

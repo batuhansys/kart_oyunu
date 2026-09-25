@@ -46,10 +46,13 @@ app.get('/', (_req, res) => {
 const roomManager = new RoomManager(io);
 
 io.on('connection', (socket) => {
+  roomManager.registerSocket(socket);
+
   socket.on('join_city_queue', ({ cityId, name } = {}) => roomManager.joinCityQueue(socket, cityId, name));
   socket.on('cancel_city_queue', () => roomManager.cancelCityQueue(socket));
   socket.on('create_room', ({ name, cityId } = {}) => roomManager.createPrivateRoom(socket, name, cityId));
   socket.on('join_room', ({ code, name } = {}) => roomManager.joinPrivateRoom(socket, code, name));
+  socket.on('invite_friend', ({ targetUid } = {}) => roomManager.inviteFriend(socket, targetUid));
   socket.on('submit_choice', ({ choice } = {}) => roomManager.submitChoice(socket, choice));
   socket.on('request_rematch', () => roomManager.requestRematch(socket));
   socket.on('accept_rematch', () => roomManager.acceptRematch(socket));

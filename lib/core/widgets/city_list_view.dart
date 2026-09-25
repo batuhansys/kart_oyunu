@@ -5,11 +5,11 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/pressable_scale.dart';
 import '../../domain/entities/game_city.dart';
 
-/// Şehir seçim kartlarını yatay bir listede gösterir. Hem tek oyunculu
-/// (lib/features/city_select/city_select_screen.dart) hem de çok
-/// oyunculu (lib/features/multiplayer/multiplayer_lobby_screen.dart)
-/// akışlarında aynı görsel dille kullanılır; ne olacağına (yerel oyun mu,
-/// online kuyruk mu) [onSelect] karar verir.
+/// Şehir seçim kartlarını yatay (veya dikey) bir listede gösterir.
+/// Çok oyunculu lobi (lib/features/multiplayer/multiplayer_lobby_screen.dart)
+/// ve "Oda Kur" şehir seçim adımı gibi birden fazla akışta aynı görsel
+/// dille kullanılır; ne olacağına (kuyruğa katıl, oda kur vb.) [onSelect]
+/// karar verir.
 class CityListView extends StatelessWidget {
   final int riskCoin;
   final void Function(GameCity city) onSelect;

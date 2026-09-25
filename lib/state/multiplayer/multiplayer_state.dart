@@ -27,6 +27,16 @@ enum MpStage {
   finished,
 }
 
+/// Bir arkadasin gonderdigi, henuz cevaplanmamis oda daveti (bkz.
+/// server/game/roomManager.js inviteFriend / 'room_invite' olayi).
+class GameInvite {
+  final String fromUsername;
+  final String code;
+  final GameCity? city;
+
+  const GameInvite({required this.fromUsername, required this.code, this.city});
+}
+
 /// "Tekrar Meydan Oku" akisinin durumu (bkz. oyun sonu ekrani).
 enum RematchStatus {
   /// Henuz kimse meydan okumadi.
@@ -76,6 +86,9 @@ class MultiplayerState {
   final String? finishReason; // 'score' | 'opponent_left' | 'opponent_disconnected'
   final RematchStatus rematchStatus;
 
+  /// Su an cevap bekleyen, bir arkadastan gelen oda daveti (varsa).
+  final GameInvite? incomingInvite;
+
   const MultiplayerState({
     this.stage = MpStage.disconnected,
     this.errorMessage,
@@ -96,6 +109,7 @@ class MultiplayerState {
     this.youWon,
     this.finishReason,
     this.rematchStatus = RematchStatus.none,
+    this.incomingInvite,
   });
 
   bool get canPass => yourConsecutivePasses < 2; // kMaxConsecutivePasses ile ayni kural
@@ -127,6 +141,8 @@ class MultiplayerState {
     bool clearYouWon = false,
     String? finishReason,
     RematchStatus? rematchStatus,
+    GameInvite? incomingInvite,
+    bool clearIncomingInvite = false,
   }) {
     return MultiplayerState(
       stage: stage ?? this.stage,
@@ -148,6 +164,7 @@ class MultiplayerState {
       youWon: clearYouWon ? null : (youWon ?? this.youWon),
       finishReason: finishReason ?? this.finishReason,
       rematchStatus: rematchStatus ?? this.rematchStatus,
+      incomingInvite: clearIncomingInvite ? null : (incomingInvite ?? this.incomingInvite),
     );
   }
 }

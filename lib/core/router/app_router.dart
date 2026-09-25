@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../domain/entities/game_city.dart';
 import '../../features/account/account_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
-import '../../features/city_select/city_select_screen.dart';
 import '../../features/daily_wheel/daily_wheel_screen.dart';
 import '../../features/friends/friends_screen.dart';
-import '../../features/game/game_table_screen.dart';
-import '../../features/game_result/game_result_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/multiplayer/multiplayer_game_screen.dart';
 import '../../features/multiplayer/multiplayer_lobby_screen.dart';
@@ -98,18 +94,6 @@ final GoRouter appRouter = GoRouter(
       pageBuilder: (context, state) => _fadeSlidePage(state: state, child: const RoyalPassScreen()),
     ),
     GoRoute(
-      path: '/city-select',
-      pageBuilder: (context, state) =>
-          _fadeSlidePage(state: state, child: const CitySelectScreen()),
-    ),
-    GoRoute(
-      path: '/game',
-      pageBuilder: (context, state) {
-        final city = state.extra as GameCity;
-        return _fadeSlidePage(state: state, child: GameTableScreen(city: city));
-      },
-    ),
-    GoRoute(
       path: '/multiplayer',
       pageBuilder: (context, state) =>
           _fadeSlidePage(state: state, child: const MultiplayerLobbyScreen()),
@@ -118,13 +102,6 @@ final GoRouter appRouter = GoRouter(
       path: '/multiplayer/game',
       pageBuilder: (context, state) =>
           _fadeSlidePage(state: state, child: const MultiplayerGameScreen()),
-    ),
-    GoRoute(
-      path: '/game-result',
-      pageBuilder: (context, state) {
-        final args = state.extra as GameResultArgs;
-        return _fadeSlidePage(state: state, child: GameResultScreen(args: args));
-      },
     ),
   ],
 );

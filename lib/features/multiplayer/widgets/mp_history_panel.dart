@@ -4,8 +4,11 @@ import '../../../core/theme/app_colors.dart';
 import '../../../domain/entities/mp_history_entry.dart';
 import '../../../domain/entities/player_choice.dart';
 
-/// lib/features/game/widgets/history_panel.dart ile ayni gorunum;
-/// sadece 'ai' yerine gercek rakip (opponent) adlandirmasi kullanilir.
+const double _kBadgeColumnWidth = 46;
+
+/// Son oynanan elleri gosterir. "Sen" ve "Rakip" puan rozetleri sabit
+/// genislikte iki ayri sutunda, ortalanmis olarak dizilir — boylece
+/// farkli elerdeki ayni buyuklukteki degerler dikeyde ayni hizada durur.
 class MpHistoryPanel extends StatelessWidget {
   final List<MpHistoryEntry> entries;
 
@@ -18,43 +21,65 @@ class MpHistoryPanel extends StatelessWidget {
         child: Text('Henüz el oynanmadı', style: TextStyle(color: Colors.white54)),
       );
     }
-    return ListView.builder(
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final e = entries[index];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceDark,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${e.yourCard.rankLabel}${e.yourCard.suitSymbol} vs '
-                      '${e.opponentCard.rankLabel}${e.opponentCard.suitSymbol}',
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
-                  ),
-                  _scoreBadge(e.yourDelta),
-                  const SizedBox(width: 4),
-                  _scoreBadge(e.opponentDelta),
-                ],
+              Expanded(child: SizedBox()),
+              SizedBox(
+                width: _kBadgeColumnWidth,
+                child: Text('Sen', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 10)),
               ),
-              const SizedBox(height: 2),
-              Text(
-                'Sen: ${e.yourChoice.shortLabel}  •  Rakip: ${e.opponentChoice.shortLabel}',
-                style: const TextStyle(color: Colors.white38, fontSize: 10),
+              SizedBox(
+                width: _kBadgeColumnWidth,
+                child: Text('Rakip', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38, fontSize: 10)),
               ),
             ],
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: entries.length,
+            itemBuilder: (context, index) {
+              final e = entries[index];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceDark,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${e.yourCard.rankLabel}${e.yourCard.suitSymbol} vs '
+                            '${e.opponentCard.rankLabel}${e.opponentCard.suitSymbol}',
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ),
+                        SizedBox(width: _kBadgeColumnWidth, child: Center(child: _scoreBadge(e.yourDelta))),
+                        SizedBox(width: _kBadgeColumnWidth, child: Center(child: _scoreBadge(e.opponentDelta))),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Sen: ${e.yourChoice.shortLabel}  •  Rakip: ${e.opponentChoice.shortLabel}',
+                      style: const TextStyle(color: Colors.white38, fontSize: 10),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

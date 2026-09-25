@@ -89,6 +89,13 @@ class FriendsNotifier extends StateNotifier<FriendsState> {
     await _repository.respondToRequest(requestId: requestId, accept: accept);
     await refresh();
   }
+
+  Future<void> removeFriend(String friendUid) async {
+    final uid = _uid;
+    if (uid == null) return;
+    await _repository.removeFriend(myUid: uid, friendUid: friendUid);
+    await refresh();
+  }
 }
 
 final friendsProvider = StateNotifierProvider<FriendsNotifier, FriendsState>((ref) {

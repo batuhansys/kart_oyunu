@@ -18,6 +18,23 @@ class RoomManager {
     this.rooms = new Map(); // code -> Room
     this.playerRoom = new Map(); // socketId -> code
     this.cityQueues = new Map(); // cityId -> [{ socketId, name, uid }]
+    this.uidSocket = new Map(); // uid -> socketId (sadece kimligi dogrulanmis baglantilar icin)
+  }
+
+  /// Kimligi dogrulanmis (socket.data.uid dolu) her yeni baglanti icin
+  /// server.js'den cagrilir; arkadas davetlerinin dogru soket'e
+  /// yonlendirilebilmesi icin gerekli (bkz. inviteFriend).
+  registerSocket(socket) {
+    if (socket.data.uid) this.uidSocket.set(socket.data.uid, socket.id);
+  }
+
+  /// Baglanti koptugunda cagrilir. Ayni uid ile hemen yeniden baglanip
+  /// eski (artik kopuk) kaydin yenisini silmesini onlemek icin sadece
+  /// hala BU socket'e ait kayitliysa temizler.
+  unregisterSocket(socket) {
+    if (socket.data.uid && this.uidSocket.get(socket.data.uid) === socket.id) {
+      this.uidSocket.delete(socket.data.uid);
+    }
   }
 
   _generateCode() {
@@ -134,6 +151,30 @@ class RoomManager {
     socket.emit('searching', { cityId });
   }
 
+  /// Kurulmus (rakip bekleyen) bir odadan bir arkadasa davet gonderir.
+  /// Arkadas su an baglıysa (registerSocket ile kayitliysa) ona anlik
+  /// 'room_invite' yollanir; degilse gonderene 'room_error' doner.
+  inviteFriend(socket, targetUid) {
+    const code = this.playerRoom.get(socket.id);
+    if (!code) return;
+    const room = this.rooms.get(code);
+    if (!room || room.status !== 'waiting') return;
+
+    const targetSocketId = this.uidSocket.get(targetUid);
+    const targetSocket = targetSocketId ? this.io.sockets.sockets.get(targetSocketId) : null;
+    if (!targetSocket) {
+      socket.emit('room_error', { message: 'Arkadaşın şu an çevrimiçi değil.' });
+      return;
+    }
+
+    const inviter = room.players.find((p) => p.socketId === socket.id);
+    targetSocket.emit('room_invite', {
+      fromUsername: inviter ? inviter.name : 'Bir arkadaşın',
+      code,
+      city: room.city,
+    });
+  }
+
   cancelCityQueue(socket) {
     for (const [cityId, queue] of this.cityQueues) {
       const filtered = queue.filter((q) => q.socketId !== socket.id);
@@ -172,6 +213,7 @@ class RoomManager {
   }
 
   handleDisconnect(socket) {
+    this.unregisterSocket(socket);
     this.cancelCityQueue(socket);
     const code = this.playerRoom.get(socket.id);
     if (!code) return;

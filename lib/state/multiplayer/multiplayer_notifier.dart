@@ -43,10 +43,6 @@ bool? _asBoolOrNull(dynamic v) => v == null ? null : v == true;
 /// kullanicinin niyetlerini (eslesme ara, secim yap, masadan kalk vb.)
 /// sunucuya iletir. Boylece istemci tarafinda hile (skor degistirme)
 /// mumkun degildir.
-///
-/// lib/state/game/game_notifier.dart'taki tek-oyunculu akisin aksine
-/// burada "kim once secer" kavrami yoktur: iki gercek oyuncu ayni anda,
-/// birbirinin secimini gormeden karar verir (bkz. server/game/room.js).
 class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   MultiplayerNotifier() : super(const MultiplayerState());
 
@@ -231,6 +227,20 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
             opponentName: state.opponentName,
           ));
     });
+
+    // Bir arkadas, kurdugu odaya bizi davet edince gelir (bkz.
+    // server/game/roomManager.js inviteFriend). Sadece bu lobi ekrani
+    // acikken (soket bagliyken) teslim edilir.
+    socket.on('room_invite', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      _setState(() => state.copyWith(
+            incomingInvite: GameInvite(
+              fromUsername: (map['fromUsername'] as String?) ?? 'Bir arkadaşın',
+              code: map['code'] as String,
+              city: _cityFromJson(map['city']),
+            ),
+          ));
+    });
   }
 
   bool get canSubmitChoice =>
@@ -260,6 +270,28 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   void joinRoom(String code, String name) {
     if (state.stage != MpStage.menu) return;
     _socket?.emit('join_room', {'code': code, 'name': name});
+  }
+
+  /// Oda kurulduktan sonra ("Rakip bekleniyor" ekranindayken) bir
+  /// arkadasa davet gonderir. Arkadas o an baglisa sunucu ona anlik
+  /// 'room_invite' yollar; degilse 'room_error' doner (bkz.
+  /// server/game/roomManager.js inviteFriend).
+  void inviteFriend(String targetUid) {
+    if (state.stage != MpStage.roomWaitingForOpponent) return;
+    _socket?.emit('invite_friend', {'targetUid': targetUid});
+  }
+
+  /// Gelen bir oda davetini kabul eder: normal "koda katil" akisinin
+  /// aynisini kullanir.
+  void acceptInvite(String username) {
+    final invite = state.incomingInvite;
+    if (invite == null) return;
+    _setState(() => state.copyWith(clearIncomingInvite: true));
+    joinRoom(invite.code, username);
+  }
+
+  void declineInvite() {
+    _setState(() => state.copyWith(clearIncomingInvite: true));
   }
 
   void submitChoice(PlayerChoice choice) {

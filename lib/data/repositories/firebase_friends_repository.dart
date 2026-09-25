@@ -76,6 +76,14 @@ class FirebaseFriendsRepository {
     return const Success(null);
   }
 
+  /// Kabul edilmis bir arkadasligi sonlandirir. Dokuman id'si deterministik
+  /// (sorted uid'ler) oldugu icin taraflardan hangisi cagirirsa cagirsin
+  /// ayni dokumani hedefler.
+  Future<Result<void>> removeFriend({required String myUid, required String friendUid}) async {
+    await _firestore.collection('friendRequests').doc(_requestId(myUid, friendUid)).delete();
+    return const Success(null);
+  }
+
   Future<List<IncomingFriendRequest>> fetchIncomingRequests(String myUid) async {
     final snap = await _firestore
         .collection('friendRequests')

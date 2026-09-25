@@ -185,12 +185,36 @@ class _RequestsTab extends ConsumerWidget {
   }
 }
 
-class _ProfileTile extends StatelessWidget {
+class _ProfileTile extends ConsumerWidget {
   final UserProfile profile;
   const _ProfileTile({required this.profile});
 
+  Future<void> _confirmRemove(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceDark,
+        title: const Text('Arkadaşlıktan Çıkar', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '${profile.username} arkadaş listenden çıkarılsın mı?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Çıkar', style: TextStyle(color: AppColors.foldRed)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(friendsProvider.notifier).removeFriend(profile.userId);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       color: AppColors.surfaceDark,
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -198,6 +222,11 @@ class _ProfileTile extends StatelessWidget {
         leading: const CircleAvatar(child: Icon(Icons.person)),
         title: Text(profile.username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         subtitle: Text('Seviye ${profile.level}', style: const TextStyle(color: Colors.white60)),
+        trailing: IconButton(
+          icon: Icon(Icons.person_remove, color: AppColors.foldRed),
+          tooltip: 'Arkadaşlıktan Çıkar',
+          onPressed: () => _confirmRemove(context, ref),
+        ),
       ),
     );
   }

@@ -14,12 +14,9 @@ import '../game/widgets/card_slot.dart';
 import '../game/widgets/choice_buttons.dart';
 import 'widgets/mp_history_panel.dart';
 
-/// Coklu oyunculu oyun masasi. lib/features/game/game_table_screen.dart
-/// ile ayni gorsel dili paylasir (ayni CardSlot/ChoiceButtons
-/// widget'lari) ama state'i yerel bir AI yerine gercek sunucudan
-/// (bkz. MultiplayerNotifier) alir. Zamanlayici burada sadece gorseldir
-/// — asil zaman asimi kararini her zaman sunucu verir, bu yuzden
-/// istemci "hile" yaparak suresiz bekleyemez.
+/// Coklu oyunculu oyun masasi. Zamanlayici burada sadece gorseldir —
+/// asil zaman asimi kararini her zaman sunucu verir, bu yuzden istemci
+/// "hile" yaparak suresiz bekleyemez.
 class MultiplayerGameScreen extends ConsumerStatefulWidget {
   const MultiplayerGameScreen({super.key});
 
@@ -147,7 +144,16 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
     const placeholderCard = PlayingCard(suit: Suit.spades, rank: 2);
 
     return Scaffold(
-      appBar: AppBar(title: Text(state.opponentName != null ? 'vs ${state.opponentName}' : 'Çevrimiçi')),
+      appBar: AppBar(
+        title: Text(state.opponentName != null ? 'vs ${state.opponentName}' : 'Çevrimiçi'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.exit_to_app),
+            tooltip: 'Masadan Kalk',
+            onPressed: _confirmLeaveTable,
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           GradientBackground(
@@ -233,7 +239,6 @@ class _MultiplayerGameScreenState extends ConsumerState<MultiplayerGameScreen>
                               ref.read(soundServiceProvider).playCardFlip();
                               ref.read(multiplayerProvider.notifier).submitChoice(choice);
                             },
-                            onLeaveTable: _confirmLeaveTable,
                           ),
                         ),
                       ],
