@@ -7,6 +7,7 @@ import '../../features/auth/register_screen.dart';
 import '../../features/daily_wheel/daily_wheel_screen.dart';
 import '../../features/friends/friends_screen.dart';
 import '../../features/home/home_screen.dart';
+import '../../features/level_rewards/level_rewards_screen.dart';
 import '../../features/multiplayer/multiplayer_game_screen.dart';
 import '../../features/multiplayer/multiplayer_lobby_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
@@ -92,6 +93,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/royal-pass',
       pageBuilder: (context, state) => _fadeSlidePage(state: state, child: const RoyalPassScreen()),
+    ),
+    GoRoute(
+      path: '/level-rewards',
+      pageBuilder: (context, state) => _fadeSlidePage(state: state, child: const LevelRewardsScreen()),
     ),
     GoRoute(
       path: '/multiplayer',

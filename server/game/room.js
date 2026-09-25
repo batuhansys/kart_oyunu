@@ -1,6 +1,7 @@
 const { randomCard } = require('./cards');
 const { calculateRound } = require('./scoring');
 const { chargeEntryFee, payReward, refundEntryFee } = require('./wallet');
+const { awardXp } = require('./leveling');
 const {
   WIN_SCORE_THRESHOLD,
   LOSE_SCORE_THRESHOLD,
@@ -340,6 +341,12 @@ class Room {
   /// Sehirli bir mactaysa (this.city != null) kazanana havuzun tamamini
   /// (entryFee * 2) oder; beraberlikte (winnerIndex null) her ikisine de
   /// giris ucretini iade eder. En fazla bir kere calisir (_walletSettled).
+  ///
+  /// XP SADECE sehir kuyrugu (mode === 'city') maclarinda kazanana
+  /// verilir - "Arkadasinla Oyna" ile kurulan bir odada (mode === 'private',
+  /// bir sehir secilmis olsa bile) XP verilmez (kullanicinin talebi: bu
+  /// mod sehir parcasi da vermeyecek, bkz. Faz 3). Miktar sehrin giris
+  /// ucretinin onda biri (istanbul 250 -> 25xp, maras 250000 -> 25000xp).
   async _settleWallets(winnerIndex) {
     if (!this.city || this._walletSettled) return;
     this._walletSettled = true;
@@ -349,6 +356,10 @@ class Room {
         await Promise.all(this.players.map((p) => refundEntryFee(p.uid, this.entryFee)));
       } else {
         await payReward(this.players[winnerIndex].uid, this.entryFee * 2);
+        if (this.mode === 'city') {
+          const xpGained = Math.max(1, Math.round(this.entryFee / 10));
+          await awardXp(this.players[winnerIndex].uid, xpGained);
+        }
       }
     } catch (err) {
       // eslint-disable-next-line no-console

@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/animated_rc_counter.dart';
 import '../../core/widgets/gradient_background.dart';
-import '../../state/auth_provider.dart';
+import '../../state/level_provider.dart';
 import '../../state/wallet_provider.dart';
 import 'widgets/menu_button.dart';
 
@@ -14,8 +14,9 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(authProvider.select((s) => s.profile));
     final riskCoin = ref.watch(walletProvider.select((s) => s.riskCoin));
+    final level = ref.watch(levelProvider);
+    final pendingRewardCount = level.pendingRewards.length;
 
     return Scaffold(
       appBar: AppBar(
@@ -33,7 +34,7 @@ class HomeScreen extends ConsumerWidget {
             padding: const EdgeInsets.only(right: 12),
             child: Row(
               children: [
-                Text('Lv.${profile?.level ?? 1}', style: const TextStyle(color: Colors.white70)),
+                Text('Lv.${level.level}', style: const TextStyle(color: Colors.white70)),
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () => context.push('/account'),
@@ -97,6 +98,12 @@ class HomeScreen extends ConsumerWidget {
                   children: [
                     MenuButton(label: 'Günlük Çark', icon: Icons.casino, onTap: () => context.push('/daily-wheel')),
                     MenuButton(label: 'Atölye', icon: Icons.build, onTap: () => context.push('/workshop')),
+                    MenuButton(
+                      label: 'Seviye Ödülleri',
+                      icon: Icons.military_tech,
+                      badgeCount: pendingRewardCount,
+                      onTap: () => context.push('/level-rewards'),
+                    ),
                     MenuButton(label: 'Ayarlar', icon: Icons.settings, onTap: () => context.push('/settings')),
                   ],
                 ),

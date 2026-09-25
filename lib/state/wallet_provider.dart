@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/network/api_client.dart';
 import '../core/utils/logger.dart';
 import '../data/repositories/firebase_economy_repository.dart';
 import '../domain/repositories/economy_repository.dart';
@@ -32,7 +33,9 @@ class WalletState {
   }
 }
 
-final economyRepositoryProvider = Provider<EconomyRepository>((ref) => FirebaseEconomyRepository());
+final economyRepositoryProvider = Provider<EconomyRepository>(
+  (ref) => FirebaseEconomyRepository(apiClient: ref.watch(apiClientProvider)),
+);
 
 /// Bakiye artik `users/{uid}.riskCoin` dokumaninda kalici olarak tutulur.
 /// [WalletNotifier], giris yapan kullanicinin uid'ine baglanip Firestore'u

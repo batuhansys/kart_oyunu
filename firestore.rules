@@ -10,21 +10,23 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // Profil + cuzdan. riskCoin client'tan yazilabilir (tek oyunculu /
-    // magaza akislari icin, bkz. lib/state/wallet_provider.dart) ama
-    // kimlik alanlari (username, isAdmin) kayittan sonra degistirilemez.
-    // Cok oyunculu sehir maclarinin giris ucreti/odulu ise sunucudan
-    // (firebase-admin ile, bu kurallari hic gormeden) islenir.
+    // Profil + cuzdan + ekonomi. Kayit sirasinda kullanici kendi
+    // dokumanini bir kere olusturur (create); ondan SONRA hicbir alan
+    // (riskCoin, xp, level, isRoyalPass, pendingLevelRewards, fragments,
+    // chests, powerups, lastFreeSpinAt, lastAdSpinAt, username, isAdmin -
+    // hepsi) client tarafindan degistirilemez. Tum bakiye/seviye/odul
+    // yazmalari SADECE sunucudan (firebase-admin ile, bu kurallari hic
+    // gormeden - bkz. server/game/wallet.js, server/game/leveling.js)
+    // yapilir. Magaza satin alma bile artik server/server.js'deki
+    // /api/shop/purchase ucuna tasindi (bkz. FirebaseEconomyRepository).
     match /users/{uid} {
       // Herhangi bir giris yapmis kullanici baska birinin profilini
       // okuyabilir (arkadas aramasi/istek listesi bunu gerektirir, bkz.
-      // FirebaseFriendsRepository) — yazma hala sadece sahibine acik,
-      // bu yuzden bakiye/seviye gorunur olsa da degistirilemez.
+      // FirebaseFriendsRepository) — okuma acik ama yazma artik hicbir
+      // sekilde client'a acik degil.
       allow read: if isSignedIn();
       allow create: if isOwner(uid);
-      allow update: if isOwner(uid)
-        && request.resource.data.username == resource.data.username
-        && request.resource.data.isAdmin == resource.data.isAdmin;
+      allow update: if false;
       allow delete: if false;
     }
 

@@ -86,6 +86,8 @@ class FirebaseAuthRepository implements AuthRepository {
         'xp': 0,
         'riskCoin': 1000,
         'isAdmin': false,
+        'isRoyalPass': false,
+        'pendingLevelRewards': <Map<String, dynamic>>[],
         'friendUids': <String>[],
         'createdAt': FieldValue.serverTimestamp(),
       });

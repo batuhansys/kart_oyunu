@@ -7,11 +7,11 @@ abstract class EconomyRepository {
   /// Kullanıcının bakiyesini gerçek zamanlı izler.
   Stream<int> watchBalance(String uid);
 
-  /// Bakiyeyi verilen miktar kadar değiştirir (negatif = düş, pozitif =
-  /// ekle). Tek oyunculu şehir girişi/ödülü gibi client-taraflı
-  /// senaryolar için kullanılır; çok oyunculu şehir maçlarının giriş
-  /// ücreti/ödülü ise sunucu (Node/firebase-admin) üzerinden, bu
-  /// repository'yi hiç kullanmadan, yetkili şekilde işlenir.
+  /// ARTIK GERÇEK BİR YAZMA YAPMAZ: riskCoin sadece sunucu (firebase-admin)
+  /// tarafından değiştirilebilir (bkz. firestore.rules users/{uid} update
+  /// kuralı). Geriye dönük uyumluluk için arayüzde duruyor; gerçek bakiye
+  /// değişiklikleri her zaman sunucudaki ilgili uçtan (maç ödülü, mağaza,
+  /// çark, atölye) gelir ve [watchBalance] dinleyicisiyle otomatik yansır.
   Future<void> adjustBalance(String uid, int delta);
 
   /// Bir mağaza paketini satın alır ve başarılıysa eklenen RC

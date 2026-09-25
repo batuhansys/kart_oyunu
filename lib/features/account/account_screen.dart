@@ -7,6 +7,7 @@ import '../../core/widgets/animated_rc_counter.dart';
 import '../../core/widgets/gradient_background.dart';
 import '../../core/widgets/pressable_scale.dart';
 import '../../state/auth_provider.dart';
+import '../../state/level_provider.dart';
 import '../../state/wallet_provider.dart';
 
 class AccountScreen extends ConsumerWidget {
@@ -16,6 +17,7 @@ class AccountScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(authProvider.select((s) => s.profile));
     final riskCoin = ref.watch(walletProvider.select((s) => s.riskCoin));
+    final level = ref.watch(levelProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Hesabım')),
@@ -33,10 +35,22 @@ class AccountScreen extends ConsumerWidget {
                 ),
                 Text('ID: ${profile?.userId ?? '-'}', style: const TextStyle(color: Colors.white54)),
                 const SizedBox(height: 16),
-                Text(
-                  'Seviye: ${profile?.level ?? 1}   XP: ${profile?.xp ?? 0}',
-                  style: const TextStyle(color: Colors.white70),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      level.isMaxLevel
+                          ? 'Seviye: ${level.level} (MAKS)'
+                          : 'Seviye: ${level.level}   XP: ${level.xp}/${level.xpNeededForNext}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    if (level.isRoyalPass) ...[
+                      const SizedBox(width: 6),
+                      const Icon(Icons.workspace_premium, color: AppColors.gold, size: 16),
+                    ],
+                  ],
                 ),
+                const SizedBox(height: 12),
                 AnimatedRcCounter(
                   value: riskCoin,
                   style: const TextStyle(color: AppColors.gold, fontSize: 18, fontWeight: FontWeight.bold),

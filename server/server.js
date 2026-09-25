@@ -2,10 +2,28 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const RoomManager = require('./game/roomManager');
-const { getAuth } = require('./firebaseAdmin');
+const { getAuth, getFirestore } = require('./firebaseAdmin');
+const { payReward } = require('./game/wallet');
+const { claimLevelRewards } = require('./game/leveling');
+const { SHOP_PACKAGES } = require('./game/shopPackages');
 
 const app = express();
 const server = http.createServer(app);
+app.use(express.json());
+
+// Socket.IO'nun cors ayari sadece soket handshake'ini kapsar; asagidaki
+// /api/* uclarina web build'den (farkli origin) yapilan fetch/POST
+// istekleri icin Express'in kendi CORS basliklari gerekiyor.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 // origin: '*' -> gelistirme/MVP asamasi icin herkese acik. Ileride kendi
 // domaininizi biliyorsaniz bunu o domainle sinirlayabilirsiniz.
@@ -41,6 +59,72 @@ io.use(async (socket, next) => {
 // gormek icin kullanislidir.
 app.get('/', (_req, res) => {
   res.send('RISK Get and Gain multiplayer sunucusu calisiyor.');
+});
+
+// REST uclarini korur: Authorization: Bearer <Firebase ID token> bekler,
+// gecerliyse req.uid'i set eder. Soket baglantisindaki io.use middleware'iyle
+// ayni dogrulamayi yapar (bkz. yukarisi) - burada ise misafir gecisi YOK,
+// token yoksa/gecersizse istek reddedilir (ekonomi uclari kimliksiz asla
+// calismamali).
+async function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) {
+    res.status(401).json({ error: 'Yetkisiz istek.' });
+    return;
+  }
+  try {
+    const decoded = await getAuth().verifyIdToken(token);
+    req.uid = decoded.uid;
+    next();
+  } catch (err) {
+    console.warn('[api] gecersiz Firebase ID token:', err.message);
+    res.status(401).json({ error: 'Geçersiz oturum.' });
+  }
+}
+
+// Magaza satin alma: gercek odeme entegrasyonu (Google Play Billing vb.)
+// sonradan baglanacak - simdilik listedeki gecerli bir paket her zaman
+// onaylanir, RC dogrudan sunucu tarafindan (firebase-admin ile) hesaba
+// geçirilir; client artik riskCoin'i hicbir zaman dogrudan yazamaz.
+app.post('/api/shop/purchase', requireAuth, async (req, res) => {
+  const amount = Number(req.body?.amount);
+  const pkg = SHOP_PACKAGES.find((p) => p.amount === amount);
+  if (!pkg) {
+    res.status(400).json({ error: 'Geçersiz paket.' });
+    return;
+  }
+  try {
+    await payReward(req.uid, pkg.amount);
+    res.json({ ok: true, amount: pkg.amount });
+  } catch (err) {
+    console.error('[shop] purchase failed:', err);
+    res.status(500).json({ error: 'Satın alma başarısız.' });
+  }
+});
+
+// Bekleyen seviye odullerinin tamamini tek seferde hesaba geçirir.
+app.post('/api/level/claim', requireAuth, async (req, res) => {
+  try {
+    const result = await claimLevelRewards(req.uid);
+    res.json(result);
+  } catch (err) {
+    console.error('[level] claim failed:', err);
+    res.status(500).json({ error: 'Ödül toplama başarısız.' });
+  }
+});
+
+// Royal Pass: gercek odeme entegrasyonu sonradan baglanacak (bkz. magaza
+// ile ayni not) - simdilik dogrudan aktif eder. leveling.js zaten
+// isRoyalPass'i okuyup seviye atlama/kilometre tasi odullerini 2x yapiyor.
+app.post('/api/royal-pass/activate', requireAuth, async (req, res) => {
+  try {
+    await getFirestore().collection('users').doc(req.uid).update({ isRoyalPass: true });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[royal-pass] activate failed:', err);
+    res.status(500).json({ error: 'Royal Pass etkinleştirilemedi.' });
+  }
 });
 
 const roomManager = new RoomManager(io);
