@@ -52,14 +52,14 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('RİSK', style: displayTitleStyle(fontSize: 52)),
+              Text('101 OKEY', style: displayTitleStyle(fontSize: 46)),
               const SizedBox(height: 4),
               const Text(
-                'Get and Gain',
+                'Gerçek 101 Okey deneyimi',
                 style: TextStyle(color: Colors.white70, fontSize: 18, letterSpacing: 1),
               ),
               const SizedBox(height: 8),
-              const Text('Beta 1.0.0', style: TextStyle(color: Colors.white38, fontSize: 12)),
+              const Text('Beta 2.0', style: TextStyle(color: Colors.white38, fontSize: 12)),
               const SizedBox(height: 28),
               const SizedBox(
                 width: 28,

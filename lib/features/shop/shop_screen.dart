@@ -82,7 +82,7 @@ class ShopScreen extends ConsumerWidget {
                               } else {
                                 ref.read(soundServiceProvider).playCoin();
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Risk Coin satın alındı')),
+                                  const SnackBar(content: Text('RC satın alındı')),
                                 );
                               }
                             },

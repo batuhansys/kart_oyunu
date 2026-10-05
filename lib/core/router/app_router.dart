@@ -8,7 +8,7 @@ import '../../features/daily_wheel/daily_wheel_screen.dart';
 import '../../features/friends/friends_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/level_rewards/level_rewards_screen.dart';
-import '../../features/multiplayer/multiplayer_game_screen.dart';
+import '../../features/okey/okey_game_screen.dart';
 import '../../features/multiplayer/multiplayer_lobby_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/royal_pass/royal_pass_screen.dart';
@@ -106,7 +106,7 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/multiplayer/game',
       pageBuilder: (context, state) =>
-          _fadeSlidePage(state: state, child: const MultiplayerGameScreen()),
+          _fadeSlidePage(state: state, child: const OkeyGameScreen()),
     ),
   ],
 );

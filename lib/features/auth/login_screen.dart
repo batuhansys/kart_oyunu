@@ -57,7 +57,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text('RİSK Get and Gain', style: displayTitleStyle(fontSize: 26), textAlign: TextAlign.center),
+                  Text('101 OKEY', style: displayTitleStyle(fontSize: 26), textAlign: TextAlign.center),
                   const SizedBox(height: 32),
                   TextField(
                     controller: _usernameController,

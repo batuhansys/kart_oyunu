@@ -1,7 +1,5 @@
 import '../../domain/entities/game_city.dart';
-import '../../domain/entities/mp_history_entry.dart';
-import '../../domain/entities/player_choice.dart';
-import '../../domain/entities/playing_card.dart';
+import '../../domain/entities/okey_models.dart';
 
 /// Coklu oyunculu akisin hangi asamada oldugunu belirtir.
 enum MpStage {
@@ -11,24 +9,23 @@ enum MpStage {
   /// Sunucuya baglaniliyor.
   connecting,
 
-  /// Baglandi, ana lobi menusu gosteriliyor (Hizli Eslesme / Oda Kur / Katil).
+  /// Baglandi, ana lobi menusu gosteriliyor (sehirler / arkadasinla oyna).
   menu,
 
-  /// Secilen sehrin online kuyrugunda rakip bekleniyor.
+  /// Secilen sehrin kuyrugunda oyuncu bekleniyor (sure dolunca botlar dolar).
   searchingCity,
 
-  /// Oda kuruldu, kod paylasildi, rakibin katilmasi bekleniyor.
+  /// Ozel oda kuruldu/katilindi; oda sahibi "Baslat"a basana kadar bekleniyor.
   roomWaitingForOpponent,
 
-  /// Esleşme bulundu, el oynaniyor.
+  /// Oyun suruyor.
   playing,
 
-  /// Oyun bitti (kazanan/kaybeden ekrani gosteriliyor).
+  /// Oyun bitti (siralama gosteriliyor).
   finished,
 }
 
-/// Bir arkadasin gonderdigi, henuz cevaplanmamis oda daveti (bkz.
-/// server/game/roomManager.js inviteFriend / 'room_invite' olayi).
+/// Bir arkadasin gonderdigi, henuz cevaplanmamis oda daveti.
 class GameInvite {
   final String fromUsername;
   final String code;
@@ -37,16 +34,13 @@ class GameInvite {
   const GameInvite({required this.fromUsername, required this.code, this.city});
 }
 
-/// "Tekrar Meydan Oku" akisinin durumu (bkz. oyun sonu ekrani).
-enum RematchStatus {
-  /// Henuz kimse meydan okumadi.
-  none,
-
-  /// Ben meydan okudum, rakibin onaylamasi bekleniyor.
-  requestedByMe,
-
-  /// Rakip meydan okudu, benim onaylamam bekleniyor.
-  requestedByOpponent,
+/// Raftaki per adaylarinin sunucu onizlemesi (gecerlilik + puan).
+class MeldPreview {
+  final List<int> values; // -1: gecersiz
+  final List<String?> types;
+  final int total;
+  final int pairs;
+  const MeldPreview({required this.values, required this.types, required this.total, required this.pairs});
 }
 
 class MultiplayerState {
@@ -55,85 +49,47 @@ class MultiplayerState {
 
   // Lobi
   final String? roomCode;
-
-  /// Secilen/eslesilen sehir (giris ucreti/odul bilgisi icin). Sunucu
-  /// bunu her zaman kendi listesinden dogrular (bkz.
-  /// server/game/cities.js) — burasi sadece gorsellestirme amaclidir.
+  final List<String> roomPlayers;
+  final bool isHost;
   final GameCity? city;
 
-  // Esleşme / oyun
-  final int? myIndex;
-  final String? opponentName;
-  final int roundId;
-  final PlayingCard? yourCard;
-  final PlayingCard? opponentCard; // sadece acilim (reveal) aninda dolu
-  final PlayerChoice? yourChoice;
-  final PlayerChoice? opponentChoice;
+  // Oyun
+  final OkeyView? view;
+  final int? deadlineMs; // sunucu epoch ms; tur/ara sayaci icin
+  final List<bool> humans;
+  final OkeyOver? over;
 
-  /// Bu elde once secme (oncelik) sirasi sende mi? Sunucu her elde
-  /// bunu rakibe cevirir (bkz. server/game/room.js). false ise once
-  /// rakip sececek, onun secim RENGI acildiktan sonra senin siran
-  /// gelecek (priority_revealed olayi).
-  final bool isYourTurn;
+  /// Gecici (SnackBar) hata/bilgi mesaji: sunucu reddettiginde gelir.
+  final String? toast;
 
-  final int yourScore;
-  final int opponentScore;
-  final int yourConsecutivePasses;
-  final List<MpHistoryEntry> history;
+  /// KAHIN ile gorulen deste ustu tasi (bir sure sonra gizlenir).
+  final OkeyTile? peekTile;
 
-  // Oyun sonu
-  final bool? youWon; // null: berabere/ikisi de kaybetti
-  final String? finishReason; // 'score' | 'opponent_left' | 'opponent_disconnected'
-  final RematchStatus rematchStatus;
+  final MeldPreview? preview;
 
   /// Su an cevap bekleyen, bir arkadastan gelen oda daveti (varsa).
   final GameInvite? incomingInvite;
 
-  // Guc kullanimi (ZORBA/KALKAN/KAHIN) - bkz. server/game/room.js usePower.
-  /// Bu elde HANGI gucu kullandim ('zorba'|'kalkan'|'kahin'), yoksa null.
-  /// Bir elde en fazla 1 guc kullanilabilir; her yeni elde sifirlanir.
-  final String? usedPowerThisRound;
-
-  /// Rakip bu el bana ZORBA kullandi mi (pas secenegi kapanir).
-  final bool opponentUsedZorba;
-
-  /// KAHIN kullanildiginda ANINDA gelen rakip karti; client 1 saniye
-  /// gosterip gizler (bkz. multiplayer_notifier.dart _kahinRevealTimer).
-  final PlayingCard? kahinRevealCard;
-
-  /// Bir guc kullanma denemesi basarisiz olunca (orn. envanter bosaldi)
-  /// gelen gecici hata mesaji.
-  final String? powerErrorMessage;
+  /// Oyun sirasinda baglanti koptu; sunucu masayi bizim icin tutuyor (bot oynuyor).
+  final bool connectionLost;
 
   const MultiplayerState({
     this.stage = MpStage.disconnected,
     this.errorMessage,
     this.roomCode,
+    this.roomPlayers = const [],
+    this.isHost = false,
     this.city,
-    this.myIndex,
-    this.opponentName,
-    this.roundId = 0,
-    this.yourCard,
-    this.opponentCard,
-    this.yourChoice,
-    this.opponentChoice,
-    this.isYourTurn = true,
-    this.yourScore = 0,
-    this.opponentScore = 0,
-    this.yourConsecutivePasses = 0,
-    this.history = const [],
-    this.youWon,
-    this.finishReason,
-    this.rematchStatus = RematchStatus.none,
+    this.view,
+    this.deadlineMs,
+    this.humans = const [],
+    this.over,
+    this.toast,
+    this.peekTile,
+    this.preview,
     this.incomingInvite,
-    this.usedPowerThisRound,
-    this.opponentUsedZorba = false,
-    this.kahinRevealCard,
-    this.powerErrorMessage,
+    this.connectionLost = false,
   });
-
-  bool get canPass =>
-      yourConsecutivePasses < 2 && !opponentUsedZorba; // kMaxConsecutivePasses ile ayni kural
 
   MultiplayerState copyWith({
     MpStage? stage,
@@ -141,63 +97,42 @@ class MultiplayerState {
     bool clearError = false,
     String? roomCode,
     bool clearRoomCode = false,
+    List<String>? roomPlayers,
+    bool? isHost,
     GameCity? city,
     bool clearCity = false,
-    int? myIndex,
-    String? opponentName,
-    int? roundId,
-    PlayingCard? yourCard,
-    PlayingCard? opponentCard,
-    bool clearOpponentCard = false,
-    PlayerChoice? yourChoice,
-    bool clearYourChoice = false,
-    PlayerChoice? opponentChoice,
-    bool clearOpponentChoice = false,
-    bool? isYourTurn,
-    int? yourScore,
-    int? opponentScore,
-    int? yourConsecutivePasses,
-    List<MpHistoryEntry>? history,
-    bool? youWon,
-    bool clearYouWon = false,
-    String? finishReason,
-    RematchStatus? rematchStatus,
+    OkeyView? view,
+    int? deadlineMs,
+    bool clearDeadline = false,
+    List<bool>? humans,
+    OkeyOver? over,
+    bool clearOver = false,
+    String? toast,
+    bool clearToast = false,
+    OkeyTile? peekTile,
+    bool clearPeek = false,
+    MeldPreview? preview,
+    bool clearPreview = false,
     GameInvite? incomingInvite,
     bool clearIncomingInvite = false,
-    String? usedPowerThisRound,
-    bool clearUsedPowerThisRound = false,
-    bool? opponentUsedZorba,
-    PlayingCard? kahinRevealCard,
-    bool clearKahinRevealCard = false,
-    String? powerErrorMessage,
-    bool clearPowerError = false,
+    bool? connectionLost,
   }) {
     return MultiplayerState(
       stage: stage ?? this.stage,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       roomCode: clearRoomCode ? null : (roomCode ?? this.roomCode),
+      roomPlayers: roomPlayers ?? this.roomPlayers,
+      isHost: isHost ?? this.isHost,
       city: clearCity ? null : (city ?? this.city),
-      myIndex: myIndex ?? this.myIndex,
-      opponentName: opponentName ?? this.opponentName,
-      roundId: roundId ?? this.roundId,
-      yourCard: yourCard ?? this.yourCard,
-      opponentCard: clearOpponentCard ? null : (opponentCard ?? this.opponentCard),
-      yourChoice: clearYourChoice ? null : (yourChoice ?? this.yourChoice),
-      opponentChoice: clearOpponentChoice ? null : (opponentChoice ?? this.opponentChoice),
-      isYourTurn: isYourTurn ?? this.isYourTurn,
-      yourScore: yourScore ?? this.yourScore,
-      opponentScore: opponentScore ?? this.opponentScore,
-      yourConsecutivePasses: yourConsecutivePasses ?? this.yourConsecutivePasses,
-      history: history ?? this.history,
-      youWon: clearYouWon ? null : (youWon ?? this.youWon),
-      finishReason: finishReason ?? this.finishReason,
-      rematchStatus: rematchStatus ?? this.rematchStatus,
+      view: view ?? this.view,
+      deadlineMs: clearDeadline ? null : (deadlineMs ?? this.deadlineMs),
+      humans: humans ?? this.humans,
+      over: clearOver ? null : (over ?? this.over),
+      toast: clearToast ? null : (toast ?? this.toast),
+      peekTile: clearPeek ? null : (peekTile ?? this.peekTile),
+      preview: clearPreview ? null : (preview ?? this.preview),
       incomingInvite: clearIncomingInvite ? null : (incomingInvite ?? this.incomingInvite),
-      usedPowerThisRound:
-          clearUsedPowerThisRound ? null : (usedPowerThisRound ?? this.usedPowerThisRound),
-      opponentUsedZorba: opponentUsedZorba ?? this.opponentUsedZorba,
-      kahinRevealCard: clearKahinRevealCard ? null : (kahinRevealCard ?? this.kahinRevealCard),
-      powerErrorMessage: clearPowerError ? null : (powerErrorMessage ?? this.powerErrorMessage),
+      connectionLost: connectionLost ?? this.connectionLost,
     );
   }
 }

@@ -6,7 +6,7 @@
          tanimlamak gerekir. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="kart_oyunu"
+        android:label="101 Okey"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

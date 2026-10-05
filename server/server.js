@@ -63,6 +63,22 @@ app.get('/', (_req, res) => {
   res.send('RISK Get and Gain multiplayer sunucusu calisiyor.');
 });
 
+// Dagitim teshisi: Firebase Admin duzgun baslatilabiliyor mu? (sir
+// icermez). "Kimlik dogrulanamadi" hatasi alinirsa once buraya bakin:
+// firebase.ok=false ise Render'da FIREBASE_SERVICE_ACCOUNT eksik/hatali.
+app.get('/api/health', async (_req, res) => {
+  const out = { server: true, firebase: { ok: false } };
+  try {
+    getAuth();
+    await getFirestore().collection('usernames').limit(1).get();
+    out.firebase.ok = true;
+  } catch (err) {
+    out.firebase.error = String(err.message || err).slice(0, 200);
+    out.firebase.hasEnv = !!process.env.FIREBASE_SERVICE_ACCOUNT;
+  }
+  res.status(out.firebase.ok ? 200 : 503).json(out);
+});
+
 // REST uclarini korur: Authorization: Bearer <Firebase ID token> bekler,
 // gecerliyse req.uid'i set eder. Soket baglantisindaki io.use middleware'iyle
 // ayni dogrulamayi yapar (bkz. yukarisi) - burada ise misafir gecisi YOK,
@@ -190,10 +206,15 @@ io.on('connection', (socket) => {
   socket.on('create_room', ({ name, cityId } = {}) => roomManager.createPrivateRoom(socket, name, cityId));
   socket.on('join_room', ({ code, name } = {}) => roomManager.joinPrivateRoom(socket, code, name));
   socket.on('invite_friend', ({ targetUid } = {}) => roomManager.inviteFriend(socket, targetUid));
-  socket.on('submit_choice', ({ choice } = {}) => roomManager.submitChoice(socket, choice));
+  socket.on('start_room', () => roomManager.startRoom(socket));
+  socket.on('okey_draw', ({ source } = {}) => roomManager.action(socket, { type: 'draw', source }));
+  socket.on('okey_lay', ({ groups } = {}) => roomManager.action(socket, { type: 'lay', groups }));
+  socket.on('okey_add', ({ tileId, owner, meld } = {}) => roomManager.action(socket, { type: 'add', tileId, owner, meld }));
+  socket.on('okey_swap', ({ tileId, owner, meld, jokerId } = {}) => roomManager.action(socket, { type: 'swap', tileId, owner, meld, jokerId }));
+  socket.on('okey_arrange', () => roomManager.arrange(socket));
+  socket.on('okey_preview', ({ groups } = {}) => roomManager.preview(socket, groups));
+  socket.on('okey_discard', ({ tileId } = {}) => roomManager.action(socket, { type: 'discard', tileId }));
   socket.on('use_power', ({ power } = {}) => roomManager.usePower(socket, power));
-  socket.on('request_rematch', () => roomManager.requestRematch(socket));
-  socket.on('accept_rematch', () => roomManager.acceptRematch(socket));
   socket.on('leave_room', () => roomManager.leaveRoom(socket));
   socket.on('disconnect', () => roomManager.handleDisconnect(socket));
 });

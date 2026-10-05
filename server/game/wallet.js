@@ -32,6 +32,22 @@ async function chargeEntryFee(uidA, uidB, entryFee) {
   });
 }
 
+/** N oyuncunun (insan) hepsi ayni giris ucretini TEK transaction'da oder. */
+async function chargeEntryFeeMany(uids, entryFee) {
+  const db = getFirestore();
+  const refs = uids.map((u) => db.collection('users').doc(u));
+  return db.runTransaction(async (tx) => {
+    const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+    const insufficientUids = [];
+    snaps.forEach((snap, i) => {
+      if ((snap.data()?.riskCoin ?? 0) < entryFee) insufficientUids.push(uids[i]);
+    });
+    if (insufficientUids.length > 0) return { ok: false, insufficientUids };
+    refs.forEach((r) => tx.update(r, { riskCoin: admin.firestore.FieldValue.increment(-entryFee) }));
+    return { ok: true };
+  });
+}
+
 /** Kazanana havuzun tamamini (entryFee * 2) yatirir. */
 async function payReward(uid, amount) {
   const db = getFirestore();
@@ -45,4 +61,4 @@ async function refundEntryFee(uid, entryFee) {
   return payReward(uid, entryFee);
 }
 
-module.exports = { chargeEntryFee, payReward, refundEntryFee };
+module.exports = { chargeEntryFee, chargeEntryFeeMany, payReward, refundEntryFee };

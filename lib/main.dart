@@ -23,7 +23,7 @@ class RiskGetAndGainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'RİSK Get and Gain',
+      title: '101 Okey',
       theme: buildAppTheme(),
       routerConfig: appRouter,
       debugShowCheckedModeBanner: false,

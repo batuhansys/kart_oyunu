@@ -7,22 +7,14 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../core/constants/cities.dart';
 import '../../core/network/socket_service.dart';
 import '../../domain/entities/game_city.dart';
-import '../../domain/entities/mp_history_entry.dart';
-import '../../domain/entities/player_choice.dart';
-import '../../domain/entities/playing_card.dart';
+import '../../domain/entities/okey_models.dart';
 import 'multiplayer_state.dart';
 
-/// Sunucudan gelen `city` haritasini (varsa) GameCity'e cevirir. Server
-/// bunu bazen null gonderir (sehirsiz/eski private room akisi).
 GameCity? _cityFromJson(dynamic raw) {
   if (raw == null) return null;
   return GameCity.fromJson(Map<String, dynamic>.from(raw as Map));
 }
 
-/// Client'ta gosterim icin: sadece bir cityId geldiginde (orn.
-/// 'searching' olayi) kendi bildigimiz listeden şehri bulur. Sunucu
-/// giris ucretini her zaman KENDI listesinden dogrular; burasi salt
-/// gorsel amaclidir.
 GameCity? _cityById(String? cityId) {
   if (cityId == null) return null;
   for (final city in kCities) {
@@ -31,31 +23,31 @@ GameCity? _cityById(String? cityId) {
   return null;
 }
 
-/// `as bool` / `as bool?`, Flutter web'de socket.io-client'in JS-interop
-/// koprusunden gelen ham JS boolean degerlerinde DDC'nin sikca calisan
-/// tip kontrolunde (_asBool) beklenmedik sekilde firlatabiliyor (int/String
-/// castlarinda bu sorun yok). `== true` karsilastirmasi bu RTI kontrolunu
-/// gerektirmedigi icin guvenli calisir.
-bool _asBool(dynamic v) => v == true;
-bool? _asBoolOrNull(dynamic v) => v == null ? null : v == true;
+/// Sunucunun onerdigi el dizilimi: per gruplari + geriye kalan taslar.
+class ArrangeResult {
+  final List<List<int>> groups;
+  final List<int> rest;
+  const ArrangeResult(this.groups, this.rest);
+}
 
-/// Coklu oyunculu (multiplayer) akisin tum state machine'ini yonetir.
-/// Sunucu (server/) puanlama ve zaman asimi konusunda tek otoritedir;
-/// bu notifier sadece sunucudan gelen olaylari state'e yansitir ve
-/// kullanicinin niyetlerini (eslesme ara, secim yap, masadan kalk vb.)
-/// sunucuya iletir. Boylece istemci tarafinda hile (skor degistirme)
-/// mumkun degildir.
+List<int> _ids(dynamic raw) => (raw as List).map((e) => (e as num).toInt()).toList();
+
+/// 101 Okey coklu oyunculu akisi. Sunucu (server/okey) tek otoritedir; bu
+/// notifier sunucudan gelen durumu yansitir ve kullanici hamlelerini iletir.
 class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   MultiplayerNotifier() : super(const MultiplayerState());
 
   io.Socket? _socket;
   bool _disposed = false;
-  Timer? _kahinRevealTimer;
+  Timer? _peekTimer;
+  Timer? _recoverTimer;
+  Completer<ArrangeResult>? _arrangeCompleter;
 
   @override
   void dispose() {
     _disposed = true;
-    _kahinRevealTimer?.cancel();
+    _peekTimer?.cancel();
+    _recoverTimer?.cancel();
     super.dispose();
   }
 
@@ -64,24 +56,20 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
     state = build();
   }
 
-  /// Sunucuya baglanir. Zaten ayni sunucuya bagliysa yeniden baglanmaz.
-  /// Once (varsa) giris yapmis kullanicinin guncel Firebase ID token'ini
-  /// alir — sunucu bunu dogrulayip socket.data.uid'i set eder, sehirli
-  /// (giris ucretli) maclar bu olmadan oynanamaz (bkz. server/server.js).
   Future<void> connect(String url) async {
     String? token;
     try {
-      token = await fb_auth.FirebaseAuth.instance.currentUser?.getIdToken();
+      // Her baglantida taze token: eski token yuzunden "Kimlik dogrulanamadi"
+      // hatasi olusmasin.
+      token = await fb_auth.FirebaseAuth.instance.currentUser?.getIdToken(true);
     } catch (_) {
-      token = null; // misafir olarak devam; sehirli maclar reddedilir.
+      token = null;
     }
 
     final socket = SocketService().connect(url, token: token);
     if (identical(socket, _socket)) {
       if (state.stage == MpStage.disconnected) {
-        _setState(() => state.copyWith(
-              stage: socket.connected ? MpStage.menu : MpStage.connecting,
-            ));
+        _setState(() => state.copyWith(stage: socket.connected ? MpStage.menu : MpStage.connecting));
       }
       return;
     }
@@ -93,22 +81,33 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
 
   void _registerListeners(io.Socket socket) {
     socket.onConnect((_) {
+      if (state.connectionLost) {
+        // Masaya donus: sunucu ayni hesabi taniyip durumu (okey_state) yollar.
+        // Sure icinde gelmezse (masa bitti / sure doldu) lobiye don.
+        _recoverTimer?.cancel();
+        _recoverTimer = Timer(const Duration(seconds: 8), () {
+          if (state.connectionLost) {
+            _setState(() => const MultiplayerState(
+                  stage: MpStage.menu,
+                  errorMessage: 'Masana dönemedin (süre doldu ya da oyun bitti).',
+                ));
+          }
+        });
+        return;
+      }
       _setState(() => state.copyWith(stage: MpStage.menu, clearError: true));
     });
 
-    socket.onDisconnect((_) {
-      _setState(() => const MultiplayerState(
-            stage: MpStage.disconnected,
-            errorMessage: 'Sunucu baglantisi koptu.',
-          ));
-    });
+    void lost(String message) {
+      if (state.stage == MpStage.playing && state.view != null) {
+        _setState(() => state.copyWith(connectionLost: true));
+        return;
+      }
+      _setState(() => MultiplayerState(stage: MpStage.disconnected, errorMessage: message));
+    }
 
-    socket.onConnectError((error) {
-      _setState(() => MultiplayerState(
-            stage: MpStage.disconnected,
-            errorMessage: 'Sunucuya baglanilamadi: $error',
-          ));
-    });
+    socket.onDisconnect((_) => lost('Sunucu baglantisi koptu.'));
+    socket.onConnectError((error) => lost('Sunucuya baglanilamadi: $error'));
 
     socket.on('searching', (data) {
       final map = Map<String, dynamic>.from(data as Map);
@@ -125,8 +124,29 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
             stage: MpStage.roomWaitingForOpponent,
             roomCode: map['code'] as String,
             city: _cityFromJson(map['city']),
+            roomPlayers: const [],
+            isHost: true,
             clearError: true,
           ));
+    });
+
+    socket.on('room_joined', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      _setState(() => state.copyWith(
+            stage: MpStage.roomWaitingForOpponent,
+            isHost: false,
+            roomCode: map['code'] as String,
+            city: _cityFromJson(map['city']),
+            clearError: true,
+          ));
+    });
+
+    socket.on('room_players', (data) {
+      final map = Map<String, dynamic>.from(data as Map);
+      final names = (map['players'] as List)
+          .map((p) => (Map<String, dynamic>.from(p as Map))['name'] as String)
+          .toList();
+      _setState(() => state.copyWith(roomPlayers: names));
     });
 
     socket.on('room_error', (data) {
@@ -142,136 +162,70 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
       final map = Map<String, dynamic>.from(data as Map);
       _setState(() => MultiplayerState(
             stage: MpStage.playing,
-            myIndex: map['myIndex'] as int,
-            opponentName: (map['opponentName'] as String?) ?? 'Rakip',
             city: _cityFromJson(map['city']),
+            humans: (map['humans'] as List).map((e) => e == true).toList(),
           ));
     });
 
-    socket.on('round_start', (data) {
+    socket.on('okey_state', (data) {
       final map = Map<String, dynamic>.from(data as Map);
+      final view = OkeyView.fromJson(Map<String, dynamic>.from(map['view'] as Map));
+      final dl = (map['deadline'] as num?)?.toInt();
       _setState(() => state.copyWith(
-            stage: MpStage.playing,
-            roundId: map['roundId'] as int,
-            yourCard: PlayingCard.fromJson(Map<String, dynamic>.from(map['yourCard'] as Map)),
-            clearOpponentCard: true,
-            clearYourChoice: true,
-            clearOpponentChoice: true,
-            isYourTurn: _asBool(map['isYourTurn']),
-            clearUsedPowerThisRound: true,
-            opponentUsedZorba: false,
-            clearKahinRevealCard: true,
+            stage: state.stage == MpStage.finished ? MpStage.finished : MpStage.playing,
+            view: view,
+            deadlineMs: dl,
+            clearDeadline: dl == null,
+            humans: (map['humans'] as List?)?.map((e) => e == true).toList(),
+            clearPreview: true,
+            connectionLost: false,
           ));
-      _kahinRevealTimer?.cancel();
     });
 
-    // Guc kullanimi (ZORBA/KALKAN/KAHIN) - bkz. server/game/room.js usePower.
-    socket.on('power_used', (data) {
-      final map = Map<String, dynamic>.from(data as Map);
-      final power = map['power'] as String;
-      PlayingCard? revealCard;
-      if (power == 'kahin' && map['opponentCard'] != null) {
-        revealCard = PlayingCard.fromJson(Map<String, dynamic>.from(map['opponentCard'] as Map));
-      }
-      _setState(() => state.copyWith(usedPowerThisRound: power, kahinRevealCard: revealCard));
-
-      if (revealCard != null) {
-        _kahinRevealTimer?.cancel();
-        _kahinRevealTimer = Timer(const Duration(seconds: 1), () {
-          _setState(() => state.copyWith(clearKahinRevealCard: true));
-        });
-      }
+    socket.on('okey_over', (data) {
+      final over = OkeyOver.fromJson(Map<String, dynamic>.from(data as Map));
+      _setState(() => state.copyWith(stage: MpStage.finished, over: over));
     });
 
-    // Sadece ZORBA icin gelir (KALKAN/KAHIN gizli kalir) - bkz. server yorumu.
-    socket.on('opponent_used_power', (data) {
+    socket.on('okey_error', (data) {
       final map = Map<String, dynamic>.from(data as Map);
-      if (map['power'] == 'zorba') {
-        _setState(() => state.copyWith(opponentUsedZorba: true));
-      }
+      _setState(() => state.copyWith(toast: (map['message'] as String?) ?? 'Hamle geçersiz.'));
     });
 
     socket.on('power_error', (data) {
       final map = Map<String, dynamic>.from(data as Map);
-      _setState(() => state.copyWith(
-            powerErrorMessage: (map['message'] as String?) ?? 'Güç kullanılamadı.',
-          ));
+      _setState(() => state.copyWith(toast: (map['message'] as String?) ?? 'Güç kullanılamadı.'));
     });
 
-    // Oncelikli oyuncu secimini yapinca (veya suresi dolunca) gelir:
-    // rakibin secim RENGI acilir (karti degil) ve simdi bizim siramiz
-    // baslar. bkz. server/game/room.js _advanceToReactivePhase.
-    socket.on('priority_revealed', (data) {
+    socket.on('power_used', (_) {});
+
+    socket.on('okey_peek', (data) {
       final map = Map<String, dynamic>.from(data as Map);
-      final revealedChoice = playerChoiceFromWire(map['choice'] as String);
-      _setState(() => state.copyWith(opponentChoice: revealedChoice, isYourTurn: true));
+      final t = OkeyTile.fromJson(Map<String, dynamic>.from(map['tile'] as Map));
+      _setState(() => state.copyWith(peekTile: t));
+      _peekTimer?.cancel();
+      _peekTimer = Timer(const Duration(seconds: 4), () => _setState(() => state.copyWith(clearPeek: true)));
     });
 
-    socket.on('round_result', (data) {
+    socket.on('okey_arrange_result', (data) {
       final map = Map<String, dynamic>.from(data as Map);
-      final yourCard = PlayingCard.fromJson(Map<String, dynamic>.from(map['yourCard'] as Map));
-      final opponentCard =
-          PlayingCard.fromJson(Map<String, dynamic>.from(map['opponentCard'] as Map));
-      final yourChoice = playerChoiceFromWire(map['yourChoice'] as String);
-      final opponentChoice = playerChoiceFromWire(map['opponentChoice'] as String);
-
-      final newHistory = <MpHistoryEntry>[
-        MpHistoryEntry(
-          yourCard: yourCard,
-          opponentCard: opponentCard,
-          yourChoice: yourChoice,
-          opponentChoice: opponentChoice,
-          yourDelta: map['yourDelta'] as int,
-          opponentDelta: map['opponentDelta'] as int,
-        ),
-        ...state.history,
-      ];
-      if (newHistory.length > 10) newHistory.removeLast();
-
-      _setState(() => state.copyWith(
-            yourCard: yourCard,
-            opponentCard: opponentCard,
-            yourChoice: yourChoice,
-            opponentChoice: opponentChoice,
-            yourScore: map['yourScore'] as int,
-            opponentScore: map['opponentScore'] as int,
-            yourConsecutivePasses:
-                yourChoice == PlayerChoice.pass ? state.yourConsecutivePasses + 1 : 0,
-            history: newHistory,
-          ));
+      final groups = (map['groups'] as List).map(_ids).toList();
+      _arrangeCompleter?.complete(ArrangeResult(groups, _ids(map['rest'])));
+      _arrangeCompleter = null;
     });
 
-    socket.on('game_over', (data) {
+    socket.on('okey_preview_result', (data) {
       final map = Map<String, dynamic>.from(data as Map);
       _setState(() => state.copyWith(
-            stage: MpStage.finished,
-            youWon: _asBoolOrNull(map['youWon']),
-            yourScore: map['yourScore'] as int,
-            opponentScore: map['opponentScore'] as int,
-            finishReason: map['reason'] as String?,
-            rematchStatus: RematchStatus.none,
+            preview: MeldPreview(
+              values: _ids(map['values']),
+              types: (map['types'] as List).map((e) => e as String?).toList(),
+              total: (map['total'] as num).toInt(),
+              pairs: (map['pairs'] as num).toInt(),
+            ),
           ));
     });
 
-    socket.on('rematch_pending', (_) {
-      _setState(() => state.copyWith(rematchStatus: RematchStatus.requestedByMe));
-    });
-
-    socket.on('rematch_requested', (_) {
-      _setState(() => state.copyWith(rematchStatus: RematchStatus.requestedByOpponent));
-    });
-
-    socket.on('rematch_accepted', (_) {
-      _setState(() => MultiplayerState(
-            stage: MpStage.playing,
-            myIndex: state.myIndex,
-            opponentName: state.opponentName,
-          ));
-    });
-
-    // Bir arkadas, kurdugu odaya bizi davet edince gelir (bkz.
-    // server/game/roomManager.js inviteFriend). Sadece bu lobi ekrani
-    // acikken (soket bagliyken) teslim edilir.
     socket.on('room_invite', (data) {
       final map = Map<String, dynamic>.from(data as Map);
       _setState(() => state.copyWith(
@@ -284,15 +238,7 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
     });
   }
 
-  bool get canSubmitChoice =>
-      state.stage == MpStage.playing &&
-      state.yourCard != null &&
-      state.yourChoice == null &&
-      state.isYourTurn;
-
-  /// Bir sehir secilince cagrilir: sunucu o sehri secen baska (bagli)
-  /// birini bulursa hemen eslestirir, yoksa kuyruga ekler (bkz.
-  /// server/game/roomManager.js joinCityQueue).
+  // ------------------------------------------------------------- lobi
   void joinCityQueue(String cityId, String name) {
     if (state.stage != MpStage.menu) return;
     _socket?.emit('join_city_queue', {'cityId': cityId, 'name': name});
@@ -313,17 +259,14 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
     _socket?.emit('join_room', {'code': code, 'name': name});
   }
 
-  /// Oda kurulduktan sonra ("Rakip bekleniyor" ekranindayken) bir
-  /// arkadasa davet gonderir. Arkadas o an baglisa sunucu ona anlik
-  /// 'room_invite' yollar; degilse 'room_error' doner (bkz.
-  /// server/game/roomManager.js inviteFriend).
+  /// Oda sahibi: oyunu baslat (bos koltuklara bot oturur).
+  void startRoom() => _socket?.emit('start_room');
+
   void inviteFriend(String targetUid) {
     if (state.stage != MpStage.roomWaitingForOpponent) return;
     _socket?.emit('invite_friend', {'targetUid': targetUid});
   }
 
-  /// Gelen bir oda davetini kabul eder: normal "koda katil" akisinin
-  /// aynisini kullanir.
   void acceptInvite(String username) {
     final invite = state.incomingInvite;
     if (invite == null) return;
@@ -331,45 +274,62 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
     joinRoom(invite.code, username);
   }
 
-  void declineInvite() {
-    _setState(() => state.copyWith(clearIncomingInvite: true));
+  void declineInvite() => _setState(() => state.copyWith(clearIncomingInvite: true));
+
+  // ------------------------------------------------------------ oyun hamleleri
+  bool get _canAct => state.stage == MpStage.playing && (state.view?.isMyTurn ?? false);
+
+  void drawFromDeck() {
+    if (!_canAct) return;
+    _socket?.emit('okey_draw', {'source': 'deck'});
   }
 
-  void submitChoice(PlayerChoice choice) {
-    if (!canSubmitChoice) return;
-    if (choice == PlayerChoice.pass && !state.canPass) return;
-    _socket?.emit('submit_choice', {'choice': choice.wireValue});
-    _setState(() => state.copyWith(yourChoice: choice));
+  void drawFromDiscard() {
+    if (!_canAct) return;
+    _socket?.emit('okey_draw', {'source': 'discard'});
   }
 
-  /// Oyun ici bir guc kullanir (ZORBA/KALKAN/KAHIN). Envanter kontrolu
-  /// ve dusumu sunucuda yapilir (bkz. server/game/powerups.js); burada
-  /// sadece bu elde zaten bir guc kullanilmadiysa istegi yollariz.
+  void layMelds(List<List<int>> groups) {
+    if (!_canAct) return;
+    _socket?.emit('okey_lay', {'groups': groups});
+  }
+
+  void addToMeld(int tileId, int owner, int meld) {
+    if (!_canAct) return;
+    _socket?.emit('okey_add', {'tileId': tileId, 'owner': owner, 'meld': meld});
+  }
+
+  void discard(int tileId) {
+    if (!_canAct) return;
+    _socket?.emit('okey_discard', {'tileId': tileId});
+  }
+
   void usePower(String power) {
     if (state.stage != MpStage.playing) return;
-    if (state.usedPowerThisRound != null) return;
     _socket?.emit('use_power', {'power': power});
   }
 
-  void clearPowerError() {
-    _setState(() => state.copyWith(clearPowerError: true));
+  void requestPreview(List<List<int>> groups) {
+    if (state.stage != MpStage.playing) return;
+    _socket?.emit('okey_preview', {'groups': groups});
   }
 
-  /// Masadan kalkma: aktif bir es varsa rakip otomatik kazanir (bkz.
-  /// server Room.handlePlayerGone), oda kurulmus ama rakip gelmemisse
-  /// oda iptal edilir.
-  ///
-  /// Sadece `stage`'i degistiriyoruz (kart/skor gibi alanlari SIFIRLAMIYORUZ):
-  /// GoRouter'in pop gecis animasyonu (~320ms) boyunca bu ekran hala
-  /// mounted durumda ve provider'i dinlemeye devam ediyor. Eger burada
-  /// state'i tamamen bos bir MultiplayerState() ile degistirseydik, o
-  /// gecis sirasinda oyun masasi bir anlik "Sen: 0, Rakip: 0" ve bos
-  /// kartlarla yeniden cizilip yeni bir el basliyormus gibi gorunuyordu
-  /// (bkz. kullanici raporu: "Lobiye dön dediğimde tekrar oyuna dahil
-  /// ediyor"). Bir sonraki gercek eslesme (match_found/room_created)
-  /// zaten tamamen taze bir MultiplayerState olusturuyor, o yuzden
-  /// burada eski alanlarin bir sure ekranda asili kalmasinin bir
-  /// zarari yok.
+  Future<ArrangeResult?> requestArrange() async {
+    if (state.stage != MpStage.playing) return null;
+    _arrangeCompleter = Completer<ArrangeResult>();
+    _socket?.emit('okey_arrange');
+    try {
+      return await _arrangeCompleter!.future.timeout(const Duration(seconds: 3));
+    } catch (_) {
+      _arrangeCompleter = null;
+      return null;
+    }
+  }
+
+  void clearToast() => _setState(() => state.copyWith(clearToast: true));
+
+  // ----------------------------------------------------------------- cikis
+  /// Masadan kalkma: aktif oyunda yerine bot gecer, giris ucreti kaybedilir.
   void leaveTable() {
     _socket?.emit('leave_room');
     _setState(() => state.copyWith(stage: MpStage.menu));
@@ -377,19 +337,7 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
 
   void backToMenuAfterFinish() {
     _socket?.emit('leave_room');
-    _setState(() => state.copyWith(stage: MpStage.menu));
-  }
-
-  /// Oyun sonu ekraninda "Tekrar Meydan Oku"ya basildiginda cagrilir.
-  void requestRematch() {
-    if (state.stage != MpStage.finished) return;
-    _socket?.emit('request_rematch');
-  }
-
-  /// Rakibin meydan okumasini "Kabul Et" ile onaylar.
-  void acceptRematch() {
-    if (state.stage != MpStage.finished) return;
-    _socket?.emit('accept_rematch');
+    _setState(() => state.copyWith(stage: MpStage.menu, clearOver: true));
   }
 
   void disconnectAndExit() {
@@ -399,7 +347,6 @@ class MultiplayerNotifier extends StateNotifier<MultiplayerState> {
   }
 }
 
-final multiplayerProvider =
-    StateNotifierProvider<MultiplayerNotifier, MultiplayerState>((ref) {
+final multiplayerProvider = StateNotifierProvider<MultiplayerNotifier, MultiplayerState>((ref) {
   return MultiplayerNotifier();
 });

@@ -10,8 +10,9 @@ class GameCity {
     required this.entryFee,
   });
 
-  /// Kural: kazanç her zaman giriş ücretinin 2 katıdır.
-  int get rewardAmount => entryFee * 2;
+  /// 101 Okey: masada 1. olan giriş ücretinin 2.4 katını kazanır, 2. olan
+  /// ücretini geri alır (bkz. server/okey/room.js PRIZE_MULT).
+  int get rewardAmount => (entryFee * 2.4).round();
 
   /// Sunucudan (server/game/cities.js) gelen `{id, name, entryFee}`
   /// haritasını ayrıştırır — çok oyunculu maç/oda olaylarında kullanılır.

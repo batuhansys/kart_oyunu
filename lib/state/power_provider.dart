@@ -51,7 +51,7 @@ class PowerInventoryNotifier extends StateNotifier<PowerInventoryState> {
     _subscribe();
   }
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestore;
   final String? _uid;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
 
@@ -67,8 +67,9 @@ class PowerInventoryNotifier extends StateNotifier<PowerInventoryState> {
 
   void _subscribe() {
     final uid = _uid;
-    if (uid == null) return;
-    _sub = _firestore.collection('users').doc(uid).snapshots().listen(
+    final firestore = _firestore;
+    if (uid == null || firestore == null) return;
+    _sub = firestore.collection('users').doc(uid).snapshots().listen(
       (doc) {
         final data = doc.data();
         final powerups = data?['powerups'] as Map<String, dynamic>?;

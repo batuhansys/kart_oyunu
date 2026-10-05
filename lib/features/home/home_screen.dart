@@ -25,7 +25,7 @@ class HomeScreen extends ConsumerWidget {
           onPressed: () => context.push('/notifications'),
         ),
         title: Text(
-          'RİSK',
+          '101 OKEY',
           style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold, letterSpacing: 2),
         ),
         centerTitle: true,
@@ -78,34 +78,34 @@ class HomeScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    MenuButton(label: 'Arkadaşlar', icon: Icons.people, onTap: () => context.push('/friends')),
-                    MenuButton(
-                      label: 'Oyna',
-                      icon: Icons.play_arrow,
-                      big: true,
-                      onTap: () => context.push('/multiplayer'),
-                    ),
-                    MenuButton(label: 'Mağaza', icon: Icons.store, onTap: () => context.push('/shop')),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    MenuButton(label: 'Günlük Çark', icon: Icons.casino, onTap: () => context.push('/daily-wheel')),
-                    MenuButton(label: 'Atölye', icon: Icons.build, onTap: () => context.push('/workshop')),
-                    MenuButton(
-                      label: 'Seviye Ödülleri',
-                      icon: Icons.military_tech,
-                      badgeCount: pendingRewardCount,
-                      onTap: () => context.push('/level-rewards'),
-                    ),
-                    MenuButton(label: 'Ayarlar', icon: Icons.settings, onTap: () => context.push('/settings')),
-                  ],
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 16,
+                    runSpacing: 12,
+                    children: [
+                      MenuButton(label: 'Arkadaşlar', icon: Icons.people, onTap: () => context.push('/friends')),
+                      MenuButton(label: 'Mağaza', icon: Icons.store, onTap: () => context.push('/shop')),
+                      MenuButton(
+                        label: 'Oyna',
+                        icon: Icons.play_arrow,
+                        big: true,
+                        onTap: () => context.push('/multiplayer'),
+                      ),
+                      MenuButton(label: 'Günlük Çark', icon: Icons.casino, onTap: () => context.push('/daily-wheel')),
+                      MenuButton(label: 'Atölye', icon: Icons.build, onTap: () => context.push('/workshop')),
+                      MenuButton(
+                        label: 'Seviye Ödülleri',
+                        icon: Icons.military_tech,
+                        badgeCount: pendingRewardCount,
+                        onTap: () => context.push('/level-rewards'),
+                      ),
+                      MenuButton(label: 'Ayarlar', icon: Icons.settings, onTap: () => context.push('/settings')),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
               ],

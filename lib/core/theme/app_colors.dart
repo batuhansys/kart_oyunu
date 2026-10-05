@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Oyun genelinde kullanılan sabit renkler. Tercih butonlarının rengi
-/// işlevseldir (Riske Gir = mavi vb.) ve değiştirilmemelidir.
+/// sabittir.
 class AppColors {
   AppColors._();
 

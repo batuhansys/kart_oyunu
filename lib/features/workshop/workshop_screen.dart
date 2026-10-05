@@ -15,6 +15,19 @@ String _formatRemaining(Duration? d) {
   return '${d.inMinutes} dk';
 }
 
+String _powerHint(String power) {
+  switch (power) {
+    case 'zorba':
+      return 'Sıradaki oyuncunun turunu atlatır';
+    case 'kalkan':
+      return 'O elin ceza puanının yarısını siler';
+    case 'kahin':
+      return 'Destenin üstündeki taşı gösterir';
+    default:
+      return '';
+  }
+}
+
 String _powerLabel(String power) {
   switch (power) {
     case 'zorba':
@@ -246,6 +259,15 @@ class WorkshopScreen extends ConsumerWidget {
               style: const TextStyle(color: Colors.white54, fontSize: 11),
             ),
           ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _powerHint(power),
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white38, fontSize: 10),
+            ),
+          ),
         ],
       ),
     );

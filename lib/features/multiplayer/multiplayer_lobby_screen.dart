@@ -350,8 +350,14 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
         const CircularProgressIndicator(color: AppColors.gold),
         const SizedBox(height: 16),
         Text(
-          state.city != null ? '${state.city!.name} için rakip aranıyor...' : 'Rakip aranıyor...',
+          state.city != null ? '${state.city!.name} masası kuruluyor...' : 'Masa kuruluyor...',
           style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Gerçek oyuncular beklenir; birkaç saniye içinde boş koltuklara botlar oturur.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white54, fontSize: 12),
         ),
         const SizedBox(height: 20),
         TextButton(
@@ -408,10 +414,24 @@ class _MultiplayerLobbyScreenState extends ConsumerState<MultiplayerLobbyScreen>
                 label: const Text('Kodu Kopyala'),
               ),
               const SizedBox(height: 16),
-              const CircularProgressIndicator(color: AppColors.gold),
-              const SizedBox(height: 16),
-              const Text('Rakip bekleniyor...', style: TextStyle(color: Colors.white70)),
-              const SizedBox(height: 20),
+              Text(
+                'Masadakiler: ${state.roomPlayers.isEmpty ? '-' : state.roomPlayers.join(', ')}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 4),
+              const Text('Boş koltuklara bot oturur.', style: TextStyle(color: Colors.white38, fontSize: 11)),
+              const SizedBox(height: 12),
+              if (state.isHost)
+                _actionButton(
+                  label: 'Oyunu Başlat',
+                  icon: Icons.play_arrow,
+                  color: AppColors.gold,
+                  onTap: () => ref.read(multiplayerProvider.notifier).startRoom(),
+                )
+              else
+                const Text('Oda sahibinin başlatması bekleniyor...', style: TextStyle(color: Colors.white54)),
+              const SizedBox(height: 12),
               TextButton(
                 onPressed: () => ref.read(multiplayerProvider.notifier).leaveTable(),
                 child: const Text('İptal'),

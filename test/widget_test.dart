@@ -6,13 +6,21 @@ import 'package:flutter_test/flutter_test.dart';
 // alanini kullanir, klasor adini degil.
 import 'package:risk_get_and_gain/main.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:risk_get_and_gain/data/repositories/local_auth_repository.dart';
+import 'package:risk_get_and_gain/state/auth_provider.dart';
 
 void main() {
   testWidgets('Yükleniyor ekranı başlatma testi', (WidgetTester tester) async {
     // Uygulamamızı test ortamında ayağa kaldırıyoruz
-    await tester.pumpWidget(const ProviderScope(child: RiskGetAndGainApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        // Testte gercek Firebase yok: yerel (bellek ici) auth deposu kullan.
+        overrides: [authRepositoryProvider.overrideWithValue(LocalAuthRepository())],
+        child: const RiskGetAndGainApp(),
+      ),
+    );
 
-    // Ekranda 'RİSK GET AND GAIN' yazısının veya CircularProgressIndicator'ın olduğunu doğrulayalım
+    // Ekranda '101 OKEY' yazısının veya CircularProgressIndicator'ın olduğunu doğrulayalım
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
     // SplashScreen, 1600ms sonra otomatik olarak /login'e yönlendiren bir

@@ -12,6 +12,7 @@ class SocketService {
 
   io.Socket? _socket;
   String? _connectedUrl;
+  String? _connectedToken;
 
   io.Socket? get socket => _socket;
   bool get isConnected => _socket?.connected ?? false;
@@ -49,13 +50,17 @@ class SocketService {
   /// maclar bu uid olmadan oynanamaz. Token yoksa/gecersizse baglanti
   /// yine kurulur, sadece misafir (uid=null) olarak.
   io.Socket connect(String url, {String? token}) {
-    if (_socket != null && _connectedUrl == url) {
+    // Token degistiyse (yenilendi / baska hesapla giris yapildi) eski soketi
+    // yeniden kullanmak sunucuda "Kimlik dogrulanamadi"ya yol acar: yeni
+    // handshake icin soketi sifirdan kuruyoruz.
+    if (_socket != null && _connectedUrl == url && _connectedToken == token) {
       if (!_socket!.connected) _socket!.connect();
       return _socket!;
     }
 
     _socket?.dispose();
     _connectedUrl = url;
+    _connectedToken = token;
     _socket = io.io(
       url,
       io.OptionBuilder()
@@ -73,5 +78,6 @@ class SocketService {
     _socket?.dispose();
     _socket = null;
     _connectedUrl = null;
+    _connectedToken = null;
   }
 }
