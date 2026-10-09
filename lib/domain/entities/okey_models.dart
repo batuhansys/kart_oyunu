@@ -99,6 +99,22 @@ class OkeySeat {
       );
 }
 
+/// Hile ("rontgen") bilgisi: sunucu sadece yetkili hesaba gonderir.
+class OkeyCheat {
+  final List<List<OkeyTile>?> hands; // koltuk basina el (kendi koltugun null)
+  final OkeyTile? next; // destenin ustundeki tas
+  const OkeyCheat({required this.hands, required this.next});
+
+  factory OkeyCheat.fromJson(Map<String, dynamic> j) => OkeyCheat(
+        hands: (j['hands'] as List)
+            .map((h) => h == null
+                ? null
+                : (h as List).map((t) => OkeyTile.fromJson(Map<String, dynamic>.from(t as Map))).toList())
+            .toList(),
+        next: j['next'] == null ? null : OkeyTile.fromJson(Map<String, dynamic>.from(j['next'] as Map)),
+      );
+}
+
 class RoundResult {
   final int? winner;
   final bool okeyFinish;
@@ -132,6 +148,7 @@ class OkeyView {
   final List<int>? ranking;
   final Map<String, dynamic>? lastEvent;
   final List<OkeySeat> players;
+  final OkeyCheat? cheat;
 
   const OkeyView({
     required this.round,
@@ -151,6 +168,7 @@ class OkeyView {
     required this.ranking,
     required this.lastEvent,
     required this.players,
+    this.cheat,
   });
 
   bool get isMyTurn => current == myIndex && !roundOver && !gameOver;
@@ -181,6 +199,7 @@ class OkeyView {
       players: (j['players'] as List)
           .map((p) => OkeySeat.fromJson(Map<String, dynamic>.from(p as Map)))
           .toList(),
+      cheat: j['cheat'] == null ? null : OkeyCheat.fromJson(Map<String, dynamic>.from(j['cheat'] as Map)),
     );
   }
 }

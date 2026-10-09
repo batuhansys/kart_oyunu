@@ -33,6 +33,7 @@ class _OkeyGameScreenState extends ConsumerState<OkeyGameScreen> {
   int? _selectedId;
   int _lastRound = -1;
   bool _arranging = false;
+  bool _showCheat = false;
   Timer? _tick;
   Timer? _previewDebounce;
 
@@ -330,6 +331,7 @@ class _OkeyGameScreenState extends ConsumerState<OkeyGameScreen> {
                 }),
               ),
               if (st.peekTile != null) _peekBanner(st.peekTile!),
+              if (view.cheat != null) ..._cheatLayer(view, view.cheat!),
               if (_toastText != null) _toastBanner(_toastText!),
               if (view.roundOver && !view.gameOver) _roundOverlay(st, view),
               if (st.stage == MpStage.finished) _gameOverOverlay(st, view),
@@ -852,6 +854,97 @@ class _OkeyGameScreenState extends ConsumerState<OkeyGameScreen> {
         ),
       ),
     );
+  }
+
+  /// Hile: sag ustte kucuk goz dugmesi; acinca rakip elleri + destenin ustu.
+  List<Widget> _cheatLayer(OkeyView v, OkeyCheat cheat) {
+    final order = [(v.myIndex + 1) % 4, (v.myIndex + 2) % 4, (v.myIndex + 3) % 4];
+    int cmp(OkeyTile a, OkeyTile b) {
+      if (a.joker != b.joker) return a.joker ? -1 : 1;
+      if (a.fake != b.fake) return a.fake ? 1 : -1;
+      return a.color != b.color ? a.color.compareTo(b.color) : a.number.compareTo(b.number);
+    }
+
+    return [
+        Positioned(
+          top: 34,
+          right: 4,
+          child: GestureDetector(
+            onTap: () => setState(() => _showCheat = !_showCheat),
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+                border: Border.all(color: _showCheat ? AppColors.gold : Colors.white24),
+              ),
+              child: Icon(Icons.visibility, size: 16, color: _showCheat ? AppColors.gold : Colors.white54),
+            ),
+          ),
+        ),
+        if (_showCheat)
+          Positioned(
+            top: 34,
+            left: 8,
+            right: 36,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.82),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.gold.withOpacity(0.6)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final s in order)
+                    if (cheat.hands[s] != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 64,
+                              child: Text(v.players[s].name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final t in (List<OkeyTile>.from(cheat.hands[s]!)..sort(cmp)))
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 2),
+                                        child: OkeyTileView(color: t.color, number: t.number, fake: t.fake, joker: t.joker, width: 18),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  if (cheat.next != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 64,
+                            child: Text('Deste üstü', style: TextStyle(color: AppColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                          OkeyTileView(color: cheat.next!.color, number: cheat.next!.number, fake: cheat.next!.fake, joker: cheat.next!.joker, width: 18),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+    ];
   }
 
   Widget _toastBanner(String text) {

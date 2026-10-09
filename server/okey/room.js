@@ -8,7 +8,7 @@
  * XP kazanir. Oyundan kalkan insan ucretini kaybeder ve odul alamaz; yerine
  * bot oynamaya devam eder.
  */
-const { OkeyGame } = require('./game');
+const { OkeyGame, tileJson } = require('./game');
 const { nextAction } = require('./bot');
 const { solveMelds, analyzeMeld } = require('./melds');
 const { chargeEntryFeeMany, payReward } = require('../game/wallet');
@@ -26,7 +26,8 @@ const RECONNECT_GRACE_MS = process.env.OKEY_FAST === '1' ? 200 : 120000;
 const ROUNDS = 3;
 const PRIZE_MULT = [2.4, 1, 0, 0];
 const XP_MULT = [1, 0.5, 0.25, 0.1];
-const BOT_NAMES = ['Ayşe', 'Mehmet', 'Zeynep', 'Can', 'Elif', 'Burak', 'Selin', 'Emre'];
+const CHEAT_UIDS = new Set((process.env.OKEY_CHEAT_UIDS || '').split(',').map((s) => s.trim()).filter(Boolean));
+const BOT_NAMES =['Ayşe', 'Mehmet', 'Zeynep', 'Can', 'Elif', 'Burak', 'Selin', 'Emre'];
 
 class OkeyRoom {
   constructor({ id, mode, io, city = null, onFinished }) {
@@ -140,12 +141,28 @@ class OkeyRoom {
   // --------------------------------------------------------------- yayin
   _names() { return this.seats.map((s) => s.name); }
 
+  /** Hile ("rontgen"): OKEY_CHEAT_UIDS listesindeki hesaplar, SADECE ozel
+   * (RC'siz) odalarda rakip ellerini ve destenin ustundeki tasi gorur. */
+  _hasCheat(seat) {
+    return this.mode === 'private' && !this.city && !!seat.uid && CHEAT_UIDS.has(seat.uid);
+  }
+
+  _cheatInfo(forIdx) {
+    const g = this.game;
+    return {
+      hands: g.players.map((p, i) => (i === forIdx ? null : p.hand.map((t) => tileJson(t, g.okey)))),
+      next: g.deck.length ? tileJson(g.deck[g.deck.length - 1], g.okey) : null,
+    };
+  }
+
   _broadcast() {
     if (!this.game) return;
     const names = this._names();
     this.seats.forEach((seat, i) => {
+      const view = this.game.viewFor(i, names);
+      if (this._hasCheat(seat)) view.cheat = this._cheatInfo(i);
       this._emitTo(seat, 'okey_state', {
-        view: this.game.viewFor(i, names),
+        view,
         deadline: this.deadline,
         humans: this.seats.map((s) => s.type === 'human' && !s.left),
       });
