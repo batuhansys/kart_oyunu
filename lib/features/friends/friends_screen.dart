@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/gradient_background.dart';
 import '../../domain/entities/friend_request.dart';
@@ -213,6 +214,17 @@ class _ProfileTile extends ConsumerWidget {
     }
   }
 
+  Future<void> _sendGift(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final res = await ref.read(apiClientProvider).post('/api/friends/gift', body: {'toUid': profile.userId});
+      final amount = (res['amount'] as num?)?.toInt() ?? 500;
+      messenger.showSnackBar(SnackBar(content: Text('${profile.username} adlı arkadaşına $amount çip hediye gönderdin! 🎁')));
+    } on ApiException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
@@ -222,10 +234,20 @@ class _ProfileTile extends ConsumerWidget {
         leading: const CircleAvatar(child: Icon(Icons.person)),
         title: Text(profile.username, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         subtitle: Text('Seviye ${profile.level}', style: const TextStyle(color: Colors.white60)),
-        trailing: IconButton(
-          icon: Icon(Icons.person_remove, color: AppColors.foldRed),
-          tooltip: 'Arkadaşlıktan Çıkar',
-          onPressed: () => _confirmRemove(context, ref),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.card_giftcard, color: AppColors.gold),
+              tooltip: '500 çip hediye gönder (24 saatte 1 kez)',
+              onPressed: () => _sendGift(context, ref),
+            ),
+            IconButton(
+              icon: Icon(Icons.person_remove, color: AppColors.foldRed),
+              tooltip: 'Arkadaşlıktan Çıkar',
+              onPressed: () => _confirmRemove(context, ref),
+            ),
+          ],
         ),
       ),
     );

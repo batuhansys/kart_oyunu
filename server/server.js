@@ -8,6 +8,7 @@ const { claimLevelRewards } = require('./game/leveling');
 const { SHOP_PACKAGES } = require('./game/shopPackages');
 const { spinWheel } = require('./game/dailyWheel');
 const { mergeFragments, openChest } = require('./game/workshop');
+const { sendGift } = require('./game/gift');
 
 const app = express();
 const server = http.createServer(app);
@@ -193,6 +194,21 @@ app.post('/api/royal-pass/activate', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[royal-pass] activate failed:', err);
     res.status(500).json({ error: 'Royal Pass etkinleştirilemedi.' });
+  }
+});
+
+// Arkadasa hediye: 24 saatte 1 kez 500 RC (gonderenin bakiyesinden dusmez).
+app.post('/api/friends/gift', requireAuth, async (req, res) => {
+  try {
+    const result = await sendGift(req.uid, req.body?.toUid);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[gift] failed:', err);
+    res.status(500).json({ error: 'Hediye gönderilemedi.' });
   }
 });
 
